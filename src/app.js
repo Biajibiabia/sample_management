@@ -12,7 +12,7 @@ const SAMPLE_ID_HEADER_ALIASES = new Set([
   'samplebarcode',
   'barcode',
 ]);
-const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '是否公司返回样本', '返回公司', '冰箱', '层架', '盒号', '盒内位置', '扫码时间'];
+const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '是否公司返回样本', '返回公司', '冰箱编号(001/002)', '层架序号(从上到下1-4)', '列序号(从左到右1-5)', '抽箱序号(每列从上到下1-5)', '格子序号(每抽箱从外到内1-5)', '盒号', '盒内位置', '扫码时间'];
 const DEFAULT_BOX_CAPACITY = 12;
 
 const state = {
@@ -45,7 +45,7 @@ function buildLocation() {
 
 function formatLocation(location) {
   if (!location) return '';
-  return `冰箱${location.freezer} / ${location.shelf}层 / ${location.column}列 / ${location.drawer}抽箱 / ${location.cell}格`;
+  return `冰箱${location.freezer} / 从上到下第${location.shelf}层 / 从左到右第${location.column}列 / 从上到下第${location.drawer}抽箱 / 从外到内第${location.cell}格`;
 }
 
 function beep(type = 'error') {
@@ -99,7 +99,8 @@ function migrateSample(sample) {
     barcode: sample.barcode || sample.id,
     originalData: sample.originalData || {},
     sampleType: sample.sampleType || '',
-    isCompanyReturned: sample.isCompanyReturned || '否',
+    sampleSource: sample.sampleSource || (sample.isCompanyReturned === '是' ? '测序返回样本' : '原始采集样本'),
+    isCompanyReturned: sample.isCompanyReturned || (sample.sampleSource === '测序返回样本' ? '是' : '否'),
     returnCompany: sample.returnCompany || '',
     boxPosition: sample.boxPosition || '',
   };
@@ -145,7 +146,7 @@ function renderTable() {
   const keyword = normaliseId(elements.searchInput.value).toLowerCase();
   const samples = Array.from(state.samples.values()).filter((sample) => sample.id.toLowerCase().includes(keyword));
   if (!samples.length) {
-    elements.sampleTable.innerHTML = `<tr><td colspan="8" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
+    elements.sampleTable.innerHTML = `<tr><td colspan="9" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
     return;
   }
   elements.sampleTable.innerHTML = samples.map((sample) => `
@@ -154,6 +155,7 @@ function renderTable() {
       <td>${escapeHtml(sample.barcode || sample.id)}</td>
       <td><span class="badge ${sample.status === '已入库' ? 'badge--ok' : 'badge--pending'}">${sample.status}</span></td>
       <td>${escapeHtml(sample.sampleType || '-')}</td>
+      <td>${escapeHtml(sample.sampleSource || '-')}</td>
       <td>${escapeHtml(sample.boxName || '-')}</td>
       <td>${escapeHtml(sample.boxPosition || '-')}</td>
       <td>${escapeHtml(formatLocation(sample.location) || '-')}</td>
@@ -275,6 +277,7 @@ async function handleFile(file) {
       originalData: record.originalData,
       status: '未入库',
       sampleType: '',
+      sampleSource: '原始采集样本',
       isCompanyReturned: '否',
       returnCompany: '',
       boxName: '',
@@ -297,6 +300,8 @@ async function handleFile(file) {
     elements.fileHint.textContent = '读取失败，请重新选择文件。';
     showScanMessage('error', error.message);
     beep('error');
+  } finally {
+    if (elements.fileInput) elements.fileInput.value = '';
   }
 }
 
@@ -360,7 +365,8 @@ function handleScan(event) {
     const boxPosition = normaliseId(elements.boxPosition.value).toUpperCase() || state.currentBoxPosition || 'A1';
     sample.status = '已入库';
     sample.sampleType = elements.sampleType.value;
-    sample.isCompanyReturned = elements.companyReturned.checked ? '是' : '否';
+    sample.sampleSource = elements.sampleSource.value;
+    sample.isCompanyReturned = elements.sampleSource.value === '测序返回样本' || elements.companyReturned.checked ? '是' : '否';
     sample.returnCompany = sample.isCompanyReturned === '是' ? normaliseId(elements.returnCompany.value) : '';
     sample.boxName = getCurrentBoxName();
     sample.boxPosition = boxPosition;
@@ -406,10 +412,14 @@ function exportCsv() {
     sample.barcode || sample.id,
     sample.status,
     sample.sampleType || '',
+    sample.sampleSource || '',
     sample.isCompanyReturned || '否',
     sample.returnCompany || '',
     sample.location?.freezer || '',
     sample.location?.shelf || '',
+    sample.location?.column || '',
+    sample.location?.drawer || '',
+    sample.location?.cell || '',
     sample.boxName || '',
     sample.boxPosition || '',
     sample.storedAt || '',
@@ -444,6 +454,7 @@ function resetTask() {
   elements.boxName.value = 'BOX-001';
   elements.boxPosition.value = 'A1';
   elements.fileHint.textContent = '尚未选择文件';
+  elements.fileInput.value = '';
   showScanMessage('info', '请先上传样本清单。');
   render();
 }
@@ -459,8 +470,18 @@ function populateSelect(select, total, suffix) {
   select.innerHTML = Array.from({ length: total }, (_, index) => `<option value="${index + 1}">${index + 1}${suffix}</option>`).join('');
 }
 
+
+function syncSampleSourceControls() {
+  const isSequencingReturned = elements.sampleSource.value === '测序返回样本';
+  if (isSequencingReturned) {
+    elements.companyReturned.checked = true;
+  }
+  elements.returnCompany.disabled = !elements.companyReturned.checked && !isSequencingReturned;
+  if (elements.returnCompany.disabled) elements.returnCompany.value = '';
+}
+
 function bindElements() {
-  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxPosition', 'sampleType', 'companyReturned', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxPosition', 'sampleType', 'sampleSource', 'companyReturned', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -496,15 +517,16 @@ function init() {
     updateBoxSummary();
     persistState();
   });
-  elements.companyReturned.addEventListener('change', () => {
-    elements.returnCompany.disabled = !elements.companyReturned.checked;
-    if (!elements.companyReturned.checked) elements.returnCompany.value = '';
+  elements.sampleSource.addEventListener('change', () => {
+    elements.companyReturned.checked = elements.sampleSource.value === '测序返回样本';
+    syncSampleSourceControls();
   });
+  elements.companyReturned.addEventListener('change', syncSampleSourceControls);
   elements.exportBtn.addEventListener('click', exportCsv);
   elements.downloadTemplateBtn.addEventListener('click', downloadTemplate);
   elements.resetBtn.addEventListener('click', resetTask);
   elements.clearLogBtn.addEventListener('click', clearScanLog);
-  elements.returnCompany.disabled = !elements.companyReturned.checked;
+  syncSampleSourceControls();
   render();
 }
 

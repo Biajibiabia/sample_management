@@ -59,7 +59,7 @@ assert.equal(recordsWithSeparateBarcode.records[0].id, 'S-100');
 assert.equal(recordsWithSeparateBarcode.records[0].barcode, 'BC-100');
 assert.equal(JSON.stringify(parseDelimitedText('样本编号\nA001\nA002')), JSON.stringify([['样本编号'], ['A001'], ['A002']]));
 assert.equal(JSON.stringify(parseDelimitedText('样本编号,姓名\nA001,张三')), JSON.stringify([['样本编号', '姓名'], ['A001', '张三']]));
-assert.equal(formatLocation({ freezer: '001', shelf: '2', column: '3', drawer: '4', cell: '5' }), '冰箱001 / 2层 / 3列 / 4抽箱 / 5格');
+assert.equal(formatLocation({ freezer: '001', shelf: '2', column: '3', drawer: '4', cell: '5' }), '冰箱001 / 从上到下第2层 / 从左到右第3列 / 从上到下第4抽箱 / 从外到内第5格');
 assert.equal(incrementBoxPosition('A1'), 'A2');
 assert.equal(incrementBoxPosition('A12'), 'B1');
 assert.equal(incrementBoxPosition('Z12'), 'AA1');
