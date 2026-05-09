@@ -78,10 +78,10 @@
               </select>
             </label>
           </div>
-          <div class="scan-form__two-col">
-            <label class="checkbox-line" for="companyReturned"><input id="companyReturned" type="checkbox" /> 公司返回样本</label>
-            <label for="returnCompany">返回公司<input id="returnCompany" type="text" placeholder="如需记录，请填写公司名称" autocomplete="off" disabled /></label>
-          </div>
+          <label for="returnCompany">返回公司
+            <input id="returnCompany" type="text" placeholder="选择测序返回样本后可填写公司名称" autocomplete="off" disabled />
+            <small class="field-hint">选择“测序返回样本”即表示公司返回样本，无需再单独勾选。</small>
+          </label>
           <label for="scanInput">扫码输入</label>
           <div class="scan-form__row">
             <input id="scanInput" type="text" placeholder="请扫描或输入样本编号" autocomplete="off" disabled />
@@ -100,11 +100,11 @@
           </div>
         </div>
         <form id="locationForm" class="location-grid">
-          <label>冰箱编号（001/002）<select id="freezer"><option value="001">001</option><option value="002">002</option></select></label>
-          <label>层架序号（从上到下1-4）<select id="shelf"></select></label>
-          <label>列序号（从左到右1-5）<select id="column"></select></label>
-          <label>抽箱序号（每列从上到下1-5）<select id="drawer"></select></label>
-          <label>格子序号（每抽箱从外到内1-5）<select id="cell"></select></label>
+          <label><span class="location-label__title">冰箱编号</span><span class="location-label__hint">001/002</span><select id="freezer"><option value="001">001</option><option value="002">002</option></select></label>
+          <label><span class="location-label__title">层架序号</span><span class="location-label__hint">从上到下 1-4</span><select id="shelf"></select></label>
+          <label><span class="location-label__title">列序号</span><span class="location-label__hint">从左到右 1-5</span><select id="column"></select></label>
+          <label><span class="location-label__title">抽箱序号</span><span class="location-label__hint">每列从上到下 1-5</span><select id="drawer"></select></label>
+          <label><span class="location-label__title">格子序号</span><span class="location-label__hint">每抽箱从外到内 1-5</span><select id="cell"></select></label>
           <button class="button button--wide" type="submit">完成当前盒并开始下一盒</button>
         </form>
       </section>

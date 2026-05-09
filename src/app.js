@@ -12,7 +12,7 @@ const SAMPLE_ID_HEADER_ALIASES = new Set([
   'samplebarcode',
   'barcode',
 ]);
-const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '是否公司返回样本', '返回公司', '冰箱编号(001/002)', '层架序号(从上到下1-4)', '列序号(从左到右1-5)', '抽箱序号(每列从上到下1-5)', '格子序号(每抽箱从外到内1-5)', '盒号', '盒内位置', '扫码时间'];
+const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '返回公司', '冰箱编号(001/002)', '层架序号(从上到下1-4)', '列序号(从左到右1-5)', '抽箱序号(每列从上到下1-5)', '格子序号(每抽箱从外到内1-5)', '盒号', '盒内位置', '扫码时间'];
 const DEFAULT_BOX_CAPACITY = 12;
 
 const state = {
@@ -31,6 +31,11 @@ function normaliseId(value) {
 
 function normaliseHeader(value) {
   return normaliseId(value).toLowerCase().replace(/[\s_\-\/]+/g, '');
+}
+
+function normaliseSampleSource(sample = {}) {
+  if (sample.sampleSource === '测序返回样本' || sample.isCompanyReturned === '是') return '测序返回样本';
+  return sample.sampleSource || '原始采集样本';
 }
 
 function buildLocation() {
@@ -94,14 +99,14 @@ function restoreState() {
 }
 
 function migrateSample(sample) {
+  const sampleSource = normaliseSampleSource(sample);
   return {
     ...sample,
     barcode: sample.barcode || sample.id,
     originalData: sample.originalData || {},
     sampleType: sample.sampleType || '',
-    sampleSource: sample.sampleSource || (sample.isCompanyReturned === '是' ? '测序返回样本' : '原始采集样本'),
-    isCompanyReturned: sample.isCompanyReturned || (sample.sampleSource === '测序返回样本' ? '是' : '否'),
-    returnCompany: sample.returnCompany || '',
+    sampleSource,
+    returnCompany: sampleSource === '测序返回样本' ? sample.returnCompany || '' : '',
     boxPosition: sample.boxPosition || '',
   };
 }
@@ -278,7 +283,6 @@ async function handleFile(file) {
       status: '未入库',
       sampleType: '',
       sampleSource: '原始采集样本',
-      isCompanyReturned: '否',
       returnCompany: '',
       boxName: '',
       boxPosition: '',
@@ -366,8 +370,7 @@ function handleScan(event) {
     sample.status = '已入库';
     sample.sampleType = elements.sampleType.value;
     sample.sampleSource = elements.sampleSource.value;
-    sample.isCompanyReturned = elements.sampleSource.value === '测序返回样本' || elements.companyReturned.checked ? '是' : '否';
-    sample.returnCompany = sample.isCompanyReturned === '是' ? normaliseId(elements.returnCompany.value) : '';
+    sample.returnCompany = sample.sampleSource === '测序返回样本' ? normaliseId(elements.returnCompany.value) : '';
     sample.boxName = getCurrentBoxName();
     sample.boxPosition = boxPosition;
     sample.location = buildLocation();
@@ -413,7 +416,6 @@ function exportCsv() {
     sample.status,
     sample.sampleType || '',
     sample.sampleSource || '',
-    sample.isCompanyReturned || '否',
     sample.returnCompany || '',
     sample.location?.freezer || '',
     sample.location?.shelf || '',
@@ -473,15 +475,12 @@ function populateSelect(select, total, suffix) {
 
 function syncSampleSourceControls() {
   const isSequencingReturned = elements.sampleSource.value === '测序返回样本';
-  if (isSequencingReturned) {
-    elements.companyReturned.checked = true;
-  }
-  elements.returnCompany.disabled = !elements.companyReturned.checked && !isSequencingReturned;
-  if (elements.returnCompany.disabled) elements.returnCompany.value = '';
+  elements.returnCompany.disabled = !isSequencingReturned;
+  if (!isSequencingReturned) elements.returnCompany.value = '';
 }
 
 function bindElements() {
-  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxPosition', 'sampleType', 'sampleSource', 'companyReturned', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -517,11 +516,7 @@ function init() {
     updateBoxSummary();
     persistState();
   });
-  elements.sampleSource.addEventListener('change', () => {
-    elements.companyReturned.checked = elements.sampleSource.value === '测序返回样本';
-    syncSampleSourceControls();
-  });
-  elements.companyReturned.addEventListener('change', syncSampleSourceControls);
+  elements.sampleSource.addEventListener('change', syncSampleSourceControls);
   elements.exportBtn.addEventListener('click', exportCsv);
   elements.downloadTemplateBtn.addEventListener('click', downloadTemplate);
   elements.resetBtn.addEventListener('click', resetTask);
