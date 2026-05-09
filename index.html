@@ -13,7 +13,7 @@
       <div class="hero__copy">
         <p class="eyebrow">WHALE · Biobank Inventory</p>
         <h1>WHALE生物样本扫码入库管理系统</h1>
-        <p class="hero__desc">上传样本清单，逐支扫码匹配，自动递增盒内位置，按盒记录冰箱位置并导出完整入库结果。</p>
+        <p class="hero__desc">上传样本清单，逐支扫码匹配，自动递增盒内位置，按盒记录冰箱、层架、列、抽箱和格子位置，并导出完整入库结果。</p>
       </div>
       <div class="hero__stats" aria-label="入库统计">
         <div><span id="totalCount">0</span><small>清单样本</small></div>
@@ -50,7 +50,7 @@
           <span class="step">2</span>
           <div>
             <h2>按盒扫码入库</h2>
-            <p>扫码枪通常会自动回车；也可手动输入样本编号后按 Enter。成功扫码后盒内位置会自动递增。</p>
+            <p>扫码枪通常会自动回车；也可手动输入样本编号后按 Enter。成功扫码后盒内位置会自动递增，并写入样本来源。</p>
           </div>
         </div>
         <form id="scanForm" class="scan-form">
@@ -71,9 +71,17 @@
                 <option value="其他">其他</option>
               </select>
             </label>
-            <label class="checkbox-line" for="companyReturned"><input id="companyReturned" type="checkbox" /> 公司返回样本</label>
+            <label for="sampleSource">样本来源
+              <select id="sampleSource">
+                <option value="原始采集样本">原始采集样本</option>
+                <option value="测序返回样本">测序返回样本</option>
+              </select>
+            </label>
           </div>
-          <label for="returnCompany">返回公司<input id="returnCompany" type="text" placeholder="如需记录，请填写公司名称" autocomplete="off" disabled /></label>
+          <div class="scan-form__two-col">
+            <label class="checkbox-line" for="companyReturned"><input id="companyReturned" type="checkbox" /> 公司返回样本</label>
+            <label for="returnCompany">返回公司<input id="returnCompany" type="text" placeholder="如需记录，请填写公司名称" autocomplete="off" disabled /></label>
+          </div>
           <label for="scanInput">扫码输入</label>
           <div class="scan-form__row">
             <input id="scanInput" type="text" placeholder="请扫描或输入样本编号" autocomplete="off" disabled />
@@ -88,15 +96,15 @@
           <span class="step">3</span>
           <div>
             <h2>记录盒子冰箱位置</h2>
-            <p>每盒扫码完成后，选择其所在冰箱、层架、列、抽箱与格子。</p>
+            <p>每盒扫码完成后，选择其所在冰箱、层架、列、抽箱与格子；序号方向会写入导出列名。</p>
           </div>
         </div>
         <form id="locationForm" class="location-grid">
-          <label>冰箱<select id="freezer"><option value="001">001</option><option value="002">002</option></select></label>
-          <label>层架<select id="shelf"></select></label>
-          <label>列<select id="column"></select></label>
-          <label>抽箱<select id="drawer"></select></label>
-          <label>格子<select id="cell"></select></label>
+          <label>冰箱编号（001/002）<select id="freezer"><option value="001">001</option><option value="002">002</option></select></label>
+          <label>层架序号（从上到下1-4）<select id="shelf"></select></label>
+          <label>列序号（从左到右1-5）<select id="column"></select></label>
+          <label>抽箱序号（每列从上到下1-5）<select id="drawer"></select></label>
+          <label>格子序号（每抽箱从外到内1-5）<select id="cell"></select></label>
           <button class="button button--wide" type="submit">完成当前盒并开始下一盒</button>
         </form>
       </section>
@@ -107,7 +115,7 @@
             <span class="step">4</span>
             <div>
               <h2>样本清单状态</h2>
-              <p>实时显示匹配结果、样本类型、盒号、盒内位置与冰箱位置。</p>
+              <p>实时显示匹配结果、样本类型、样本来源、盒号、盒内位置与冰箱位置。</p>
             </div>
           </div>
           <div class="actions">
@@ -118,9 +126,9 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>样本编号</th><th>条码</th><th>状态</th><th>样本类型</th><th>盒号</th><th>盒内位置</th><th>冰箱位置</th><th>入库时间</th></tr>
+              <tr><th>样本编号</th><th>条码</th><th>状态</th><th>样本类型</th><th>样本来源</th><th>盒号</th><th>盒内位置</th><th>冰箱位置</th><th>入库时间</th></tr>
             </thead>
-            <tbody id="sampleTable"><tr><td colspan="8" class="empty">请上传样本清单。</td></tr></tbody>
+            <tbody id="sampleTable"><tr><td colspan="9" class="empty">请上传样本清单。</td></tr></tbody>
           </table>
         </div>
       </section>
