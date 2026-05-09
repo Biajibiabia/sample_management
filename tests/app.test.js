@@ -12,9 +12,20 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(appSource, sandbox);
 
-const { normaliseId, rowsToSampleIds, parseDelimitedText, formatLocation } = sandbox.module.exports;
+const {
+  SAMPLE_ID_HEADERS,
+  formatLocation,
+  incrementBoxPosition,
+  normaliseHeader,
+  normaliseId,
+  parseDelimitedText,
+  rowsToSampleIds,
+  rowsToSampleRecords,
+} = sandbox.module.exports;
 
 assert.equal(normaliseId('  SAMPLE-001\n'), 'SAMPLE-001');
+assert.equal(normaliseHeader(' Sample Barcode '), 'samplebarcode');
+assert.ok(SAMPLE_ID_HEADERS.includes('sample barcode'));
 assert.equal(JSON.stringify(rowsToSampleIds([
   ['样本编号', '姓名'],
   ['S-001', 'A'],
@@ -25,8 +36,32 @@ assert.equal(JSON.stringify(rowsToSampleIds([
   ['sample_id', 'box'],
   ['BIO-1', 'BOX-1'],
 ])), JSON.stringify(['BIO-1']));
+assert.equal(JSON.stringify(rowsToSampleIds([
+  ['sample barcode', '项目', '备注'],
+  ['BC-1', 'P1', 'keep'],
+])), JSON.stringify(['BC-1']));
+assert.equal(JSON.stringify(rowsToSampleIds([
+  ['ID', '姓名'],
+  ['ID-001', '王五'],
+])), JSON.stringify(['ID-001']));
+const parsedRecords = rowsToSampleRecords([
+  ['barcode', '姓名', '备注'],
+  ['B-001', '张三', '原始字段保留'],
+]);
+assert.equal(JSON.stringify(parsedRecords.headers), JSON.stringify(['barcode', '姓名', '备注']));
+assert.equal(parsedRecords.records[0].originalData['备注'], '原始字段保留');
+assert.equal(parsedRecords.records[0].barcode, 'B-001');
+const recordsWithSeparateBarcode = rowsToSampleRecords([
+  ['sample_id', 'barcode', '备注'],
+  ['S-100', 'BC-100', '双字段'],
+]);
+assert.equal(recordsWithSeparateBarcode.records[0].id, 'S-100');
+assert.equal(recordsWithSeparateBarcode.records[0].barcode, 'BC-100');
 assert.equal(JSON.stringify(parseDelimitedText('样本编号\nA001\nA002')), JSON.stringify([['样本编号'], ['A001'], ['A002']]));
 assert.equal(JSON.stringify(parseDelimitedText('样本编号,姓名\nA001,张三')), JSON.stringify([['样本编号', '姓名'], ['A001', '张三']]));
 assert.equal(formatLocation({ freezer: '001', shelf: '2', column: '3', drawer: '4', cell: '5' }), '冰箱001 / 2层 / 3列 / 4抽箱 / 5格');
+assert.equal(incrementBoxPosition('A1'), 'A2');
+assert.equal(incrementBoxPosition('A12'), 'B1');
+assert.equal(incrementBoxPosition('Z12'), 'AA1');
 
 console.log('app utility tests passed');
