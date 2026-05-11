@@ -12,14 +12,19 @@ const SAMPLE_ID_HEADER_ALIASES = new Set([
   'samplebarcode',
   'barcode',
 ]);
-const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '返回公司', '冰箱编号(001/002)', '层架序号(从上到下1-4)', '列序号(从左到右1-5)', '抽箱序号(每列从上到下1-5)', '格子序号(每抽箱从外到内1-5)', '盒号', '盒内位置', '扫码时间'];
-const DEFAULT_BOX_CAPACITY = 12;
+const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '返回公司', '冰箱编号(001/002)', '层架序号(从上到下1-4)', '列序号(从左到右1-5)', '抽箱序号(每列从上到下1-5)', '格子序号(每抽箱从外到内1-5)', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间'];
+const BOX_SPECS = {
+  '10': { size: 10, label: '10×10', lastRow: 'J' },
+  '9': { size: 9, label: '9×9', lastRow: 'I' },
+};
+const DEFAULT_BOX_SIZE = 10;
 
 const state = {
   samples: new Map(),
   scanLog: [],
   boxCounter: 1,
   currentBoxPosition: 'A1',
+  currentBoxSize: DEFAULT_BOX_SIZE,
   originalHeaders: [],
 };
 
@@ -75,6 +80,7 @@ function serialiseState() {
     scanLog: state.scanLog,
     boxCounter: state.boxCounter,
     currentBoxPosition: state.currentBoxPosition,
+    currentBoxSize: state.currentBoxSize,
     originalHeaders: state.originalHeaders,
   };
 }
@@ -91,6 +97,7 @@ function restoreState() {
     state.samples = new Map((parsed.samples || []).map((sample) => [sample.id, migrateSample(sample)]));
     state.scanLog = parsed.scanLog || [];
     state.boxCounter = parsed.boxCounter || 1;
+    state.currentBoxSize = normaliseBoxSize(parsed.currentBoxSize);
     state.currentBoxPosition = parsed.currentBoxPosition || inferNextBoxPosition() || 'A1';
     state.originalHeaders = parsed.originalHeaders || [];
   } catch {
@@ -108,7 +115,21 @@ function migrateSample(sample) {
     sampleSource,
     returnCompany: sampleSource === '测序返回样本' ? sample.returnCompany || '' : '',
     boxPosition: sample.boxPosition || '',
+    boxSize: normaliseBoxSize(sample.boxSize),
   };
+}
+
+function normaliseBoxSize(value) {
+  const key = String(value || DEFAULT_BOX_SIZE);
+  return BOX_SPECS[key] ? Number(key) : DEFAULT_BOX_SIZE;
+}
+
+function getBoxSpec(boxSize = state.currentBoxSize) {
+  return BOX_SPECS[String(normaliseBoxSize(boxSize))] || BOX_SPECS[String(DEFAULT_BOX_SIZE)];
+}
+
+function formatBoxSpec(boxSize) {
+  return getBoxSpec(boxSize).label;
 }
 
 function addLog(level, message, sampleId = '') {
@@ -134,7 +155,7 @@ function getCurrentBoxStoredCount() {
 function updateBoxSummary() {
   if (!elements.currentBoxCount || !elements.positionPreview) return;
   elements.currentBoxCount.textContent = getCurrentBoxStoredCount();
-  elements.positionPreview.textContent = normaliseId(elements.boxPosition.value) || state.currentBoxPosition || 'A1';
+  elements.positionPreview.textContent = `${normaliseId(elements.boxPosition.value) || state.currentBoxPosition || 'A1'} (${formatBoxSpec(state.currentBoxSize)})`;
 }
 
 function updateStats() {
@@ -149,9 +170,9 @@ function updateStats() {
 
 function renderTable() {
   const keyword = normaliseId(elements.searchInput.value).toLowerCase();
-  const samples = Array.from(state.samples.values()).filter((sample) => sample.id.toLowerCase().includes(keyword));
+  const samples = Array.from(state.samples.values()).filter((sample) => matchesSampleKeyword(sample, keyword));
   if (!samples.length) {
-    elements.sampleTable.innerHTML = `<tr><td colspan="9" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
+    elements.sampleTable.innerHTML = `<tr><td colspan="10" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
     return;
   }
   elements.sampleTable.innerHTML = samples.map((sample) => `
@@ -162,11 +183,60 @@ function renderTable() {
       <td>${escapeHtml(sample.sampleType || '-')}</td>
       <td>${escapeHtml(sample.sampleSource || '-')}</td>
       <td>${escapeHtml(sample.boxName || '-')}</td>
+      <td>${escapeHtml(formatBoxSpec(sample.boxSize))}</td>
       <td>${escapeHtml(sample.boxPosition || '-')}</td>
-      <td>${escapeHtml(formatLocation(sample.location) || '-')}</td>
+      <td>${escapeHtml(formatSampleFullLocation(sample) || '-')}</td>
       <td>${escapeHtml(sample.storedAt || '-')}</td>
     </tr>
   `).join('');
+}
+
+function matchesSampleKeyword(sample, keyword) {
+  if (!keyword) return true;
+  return [
+    sample.id,
+    sample.barcode,
+    sample.boxName,
+    sample.boxPosition,
+    formatBoxSpec(sample.boxSize),
+    formatSampleFullLocation(sample),
+  ].some((value) => String(value || '').toLowerCase().includes(keyword));
+}
+
+function formatSampleFullLocation(sample) {
+  if (!sample || sample.status !== '已入库') return '';
+  const parts = [];
+  const freezerLocation = formatLocation(sample.location);
+  if (freezerLocation) parts.push(freezerLocation);
+  if (sample.boxName) parts.push(`盒子${sample.boxName}`);
+  if (sample.boxSize) parts.push(`${formatBoxSpec(sample.boxSize)}规格`);
+  if (sample.boxPosition) parts.push(`盒内${sample.boxPosition}`);
+  return parts.join(' / ');
+}
+
+function renderLocationSearch() {
+  if (!elements.locationSearchInput || !elements.locationSearchResult) return;
+  const keyword = normaliseId(elements.locationSearchInput.value);
+  if (!keyword) {
+    elements.locationSearchResult.innerHTML = '<span class="empty-inline">输入样本编号或条码后点击查找，显示冰箱到盒内位置的完整路径。</span>';
+    return;
+  }
+  const sample = findSampleByScan(keyword);
+  if (!sample) {
+    elements.locationSearchResult.innerHTML = `<span class="lookup-card lookup-card--warning">未找到样本：${escapeHtml(keyword)}。请确认已上传清单，或检查样本编号/条码。</span>`;
+    return;
+  }
+  if (sample.status !== '已入库') {
+    elements.locationSearchResult.innerHTML = `<span class="lookup-card lookup-card--pending"><strong>${escapeHtml(sample.id)}</strong> 尚未入库，当前没有冰箱和盒内位置记录。</span>`;
+    return;
+  }
+  elements.locationSearchResult.innerHTML = `
+    <div class="lookup-card">
+      <strong>${escapeHtml(sample.id)}</strong>
+      <span>条码：${escapeHtml(sample.barcode || sample.id)}</span>
+      <span>${escapeHtml(formatSampleFullLocation(sample))}</span>
+    </div>
+  `;
 }
 
 function renderLog() {
@@ -186,9 +256,11 @@ function renderLog() {
 function render() {
   elements.scanInput.disabled = state.samples.size === 0;
   if (elements.boxPosition && !normaliseId(elements.boxPosition.value)) {
-    elements.boxPosition.value = state.currentBoxPosition || 'A1';
+    elements.boxPosition.value = state.currentBoxPosition || '';
   }
+  if (elements.boxSize) elements.boxSize.value = String(state.currentBoxSize);
   updateStats();
+  renderLocationSearch();
   renderTable();
   renderLog();
   persistState();
@@ -276,6 +348,7 @@ async function handleFile(file) {
   try {
     const { records, headers } = await parseSampleFile(file);
     if (!records.length) throw new Error('没有读取到样本编号，请确认清单中包含“样本编号 / sample_id / barcode / sample barcode / id”等字段或第一列有数据。');
+    const selectedBoxSize = normaliseBoxSize(elements.boxSize?.value);
     state.samples = new Map(records.map((record) => [record.id, {
       id: record.id,
       barcode: record.barcode,
@@ -287,11 +360,13 @@ async function handleFile(file) {
       boxName: '',
       boxPosition: '',
       location: null,
+      boxSize: selectedBoxSize,
       storedAt: '',
     }]));
     state.scanLog = [];
     state.boxCounter = 1;
     state.currentBoxPosition = 'A1';
+    state.currentBoxSize = selectedBoxSize;
     state.originalHeaders = headers;
     elements.boxName.value = 'BOX-001';
     elements.boxPosition.value = 'A1';
@@ -320,31 +395,39 @@ function inferNextBoxPosition() {
     .filter((sample) => sample.status === '已入库' && sample.boxName === boxName && sample.boxPosition)
     .map((sample) => sample.boxPosition);
   if (!positions.length) return 'A1';
-  return incrementBoxPosition(positions[positions.length - 1]);
+  return incrementBoxPosition(positions[positions.length - 1], state.currentBoxSize) || '';
 }
 
-function incrementBoxPosition(position) {
-  const match = normaliseId(position).toUpperCase().match(/^([A-Z]+)(\d+)$/);
-  if (!match) return 'A1';
+function normaliseBoxPosition(position, boxSize = DEFAULT_BOX_SIZE) {
+  const match = normaliseId(position).toUpperCase().match(/^([A-Z])(\d{1,2})$/);
+  if (!match) return '';
   const [, row, numericColumn] = match;
   const column = Number(numericColumn);
-  if (!Number.isFinite(column) || column < 1) return 'A1';
-  if (column < DEFAULT_BOX_CAPACITY) return `${row}${column + 1}`;
-  return `${nextRowName(row)}1`;
+  const size = getBoxSpec(boxSize).size;
+  const rowIndex = row.charCodeAt(0) - 65;
+  if (rowIndex < 0 || rowIndex >= size || column < 1 || column > size) return '';
+  return `${row}${column}`;
 }
 
-function nextRowName(row) {
-  const chars = row.toUpperCase().split('');
-  let index = chars.length - 1;
-  while (index >= 0) {
-    if (chars[index] !== 'Z') {
-      chars[index] = String.fromCharCode(chars[index].charCodeAt(0) + 1);
-      return chars.join('');
-    }
-    chars[index] = 'A';
-    index -= 1;
-  }
-  return `A${chars.join('')}`;
+function incrementBoxPosition(position, boxSize = DEFAULT_BOX_SIZE) {
+  const current = normaliseBoxPosition(position, boxSize);
+  if (!current) return 'A1';
+  const [, row, numericColumn] = current.match(/^([A-Z])(\d+)$/);
+  const column = Number(numericColumn);
+  const size = getBoxSpec(boxSize).size;
+  const rowIndex = row.charCodeAt(0) - 65;
+  if (column < size) return `${row}${column + 1}`;
+  if (rowIndex < size - 1) return `${String.fromCharCode(row.charCodeAt(0) + 1)}1`;
+  return '';
+}
+
+function isBoxPositionTaken(boxName, boxPosition, ignoredSampleId = '') {
+  return Array.from(state.samples.values()).some((sample) => (
+    sample.id !== ignoredSampleId
+    && sample.status === '已入库'
+    && sample.boxName === boxName
+    && sample.boxPosition === boxPosition
+  ));
 }
 
 function findSampleByScan(scanValue) {
@@ -366,20 +449,36 @@ function handleScan(event) {
     addLog('warning', '重复扫码，样本此前已入库', sampleId);
     beep('error');
   } else {
-    const boxPosition = normaliseId(elements.boxPosition.value).toUpperCase() || state.currentBoxPosition || 'A1';
-    sample.status = '已入库';
-    sample.sampleType = elements.sampleType.value;
-    sample.sampleSource = elements.sampleSource.value;
-    sample.returnCompany = sample.sampleSource === '测序返回样本' ? normaliseId(elements.returnCompany.value) : '';
-    sample.boxName = getCurrentBoxName();
-    sample.boxPosition = boxPosition;
-    sample.location = buildLocation();
-    sample.storedAt = new Date().toLocaleString('zh-CN', { hour12: false });
-    state.currentBoxPosition = incrementBoxPosition(boxPosition);
-    elements.boxPosition.value = state.currentBoxPosition;
-    showScanMessage('success', `扫码成功：${sampleId} 已入库至 ${sample.boxName} / ${boxPosition}，下一位置 ${state.currentBoxPosition}。`);
-    addLog('success', `扫码成功，位置 ${sample.boxName} / ${boxPosition}`, sampleId);
-    beep('success');
+    const boxSize = normaliseBoxSize(elements.boxSize.value);
+    const requestedPosition = normaliseId(elements.boxPosition.value).toUpperCase() || state.currentBoxPosition;
+    const boxPosition = normaliseBoxPosition(requestedPosition, boxSize);
+    const boxName = getCurrentBoxName();
+    if (!boxPosition) {
+      showScanMessage('error', `盒内位置无效：${requestedPosition || '空'}。${formatBoxSpec(boxSize)}盒只允许 A-${getBoxSpec(boxSize).lastRow} 行、1-${getBoxSpec(boxSize).size} 列，例如 A1、B2。`);
+      addLog('error', `盒内位置无效：${requestedPosition || '空'}`, sampleId);
+      beep('error');
+    } else if (isBoxPositionTaken(boxName, boxPosition, sample.id)) {
+      showScanMessage('error', `位置冲突：${boxName} / ${boxPosition} 已有样本，请核对盒内位置后再扫码。`);
+      addLog('error', `盒内位置冲突：${boxName} / ${boxPosition}`, sampleId);
+      beep('error');
+    } else {
+      state.currentBoxSize = boxSize;
+      sample.status = '已入库';
+      sample.sampleType = elements.sampleType.value;
+      sample.sampleSource = elements.sampleSource.value;
+      sample.returnCompany = sample.sampleSource === '测序返回样本' ? normaliseId(elements.returnCompany.value) : '';
+      sample.boxName = boxName;
+      sample.boxSize = boxSize;
+      sample.boxPosition = boxPosition;
+      sample.location = buildLocation();
+      sample.storedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+      state.currentBoxPosition = incrementBoxPosition(boxPosition, boxSize);
+      elements.boxPosition.value = state.currentBoxPosition;
+      const nextHint = state.currentBoxPosition ? `下一位置 ${state.currentBoxPosition}` : '当前样本盒已满，请完成当前盒并开始下一盒';
+      showScanMessage('success', `扫码成功：${sampleId} 已入库至 ${sample.boxName} / ${formatBoxSpec(boxSize)} / ${boxPosition}，${nextHint}。`);
+      addLog('success', `扫码成功，位置 ${formatSampleFullLocation(sample)}`, sampleId);
+      beep('success');
+    }
   }
   elements.scanInput.value = '';
   elements.scanInput.focus();
@@ -400,6 +499,7 @@ function finishCurrentBox(event) {
   addLog('success', `盒子 ${boxName} 已放置到 ${formatLocation(location)}，本盒 ${count} 个样本`);
   state.boxCounter += 1;
   state.currentBoxPosition = 'A1';
+  state.currentBoxSize = normaliseBoxSize(elements.boxSize.value);
   elements.boxName.value = `BOX-${String(state.boxCounter).padStart(3, '0')}`;
   elements.boxPosition.value = 'A1';
   showScanMessage('success', `已完成 ${boxName}（本盒 ${count} 个样本），请开始扫描下一盒。`);
@@ -423,7 +523,9 @@ function exportCsv() {
     sample.location?.drawer || '',
     sample.location?.cell || '',
     sample.boxName || '',
+    formatBoxSpec(sample.boxSize),
     sample.boxPosition || '',
+    formatSampleFullLocation(sample),
     sample.storedAt || '',
     ...extraHeaders.map((headerName) => sample.originalData?.[headerName] || ''),
   ]);
@@ -452,9 +554,11 @@ function resetTask() {
   state.scanLog = [];
   state.boxCounter = 1;
   state.currentBoxPosition = 'A1';
+  state.currentBoxSize = DEFAULT_BOX_SIZE;
   state.originalHeaders = [];
   elements.boxName.value = 'BOX-001';
   elements.boxPosition.value = 'A1';
+  if (elements.boxSize) elements.boxSize.value = String(DEFAULT_BOX_SIZE);
   elements.fileHint.textContent = '尚未选择文件';
   elements.fileInput.value = '';
   showScanMessage('info', '请先上传样本清单。');
@@ -480,7 +584,7 @@ function syncSampleSourceControls() {
 }
 
 function bindElements() {
-  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -493,6 +597,7 @@ function init() {
   populateSelect(elements.cell, 5, '号格子');
   restoreState();
   if (!elements.boxName.value) elements.boxName.value = `BOX-${String(state.boxCounter).padStart(3, '0')}`;
+  elements.boxSize.value = String(state.currentBoxSize);
   elements.boxPosition.value = state.currentBoxPosition || 'A1';
 
   elements.fileInput.addEventListener('change', (event) => handleFile(event.target.files[0]));
@@ -509,9 +614,22 @@ function init() {
   elements.scanForm.addEventListener('submit', handleScan);
   elements.locationForm.addEventListener('submit', finishCurrentBox);
   elements.searchInput.addEventListener('input', renderTable);
+  elements.locationSearchForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    renderLocationSearch();
+  });
+  elements.locationSearchInput.addEventListener('input', renderLocationSearch);
   elements.boxName.addEventListener('input', updateBoxSummary);
+  elements.boxSize.addEventListener('change', () => {
+    state.currentBoxSize = normaliseBoxSize(elements.boxSize.value);
+    const currentPosition = normaliseBoxPosition(elements.boxPosition.value || state.currentBoxPosition, state.currentBoxSize);
+    state.currentBoxPosition = currentPosition || 'A1';
+    elements.boxPosition.value = state.currentBoxPosition;
+    updateBoxSummary();
+    persistState();
+  });
   elements.boxPosition.addEventListener('input', () => {
-    state.currentBoxPosition = normaliseId(elements.boxPosition.value).toUpperCase() || 'A1';
+    state.currentBoxPosition = normaliseId(elements.boxPosition.value).toUpperCase();
     elements.boxPosition.value = state.currentBoxPosition;
     updateBoxSummary();
     persistState();
@@ -530,5 +648,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, incrementBoxPosition, SAMPLE_ID_HEADERS };
+  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, SAMPLE_ID_HEADERS };
 }
