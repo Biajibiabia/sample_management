@@ -13,7 +13,7 @@
       <div class="hero__copy">
         <p class="eyebrow">WHALE · Biobank Inventory</p>
         <h1>WHALE生物样本扫码入库管理系统</h1>
-        <p class="hero__desc">上传样本清单，逐支扫码匹配，自动递增盒内位置，按盒记录冰箱、层架、列、抽箱和格子位置，并导出完整入库结果。</p>
+        <p class="hero__desc">上传样本清单，逐支扫码匹配，可按 9×9 或 10×10 样本盒自动递增盒内位置，按盒记录冰箱、层架、列、抽箱和格子位置，并导出完整入库结果。</p>
       </div>
       <div class="hero__stats" aria-label="入库统计">
         <div><span id="totalCount">0</span><small>清单样本</small></div>
@@ -50,14 +50,23 @@
           <span class="step">2</span>
           <div>
             <h2>按盒扫码入库</h2>
-            <p>扫码枪通常会自动回车；也可手动输入样本编号后按 Enter。成功扫码后盒内位置会自动递增，并写入样本来源。</p>
+            <p>扫码枪通常会自动回车；也可手动输入样本编号后按 Enter。先选择样本盒规格，位置按行 A-J/A-I、列 1-10/1-9 自动递增。</p>
           </div>
         </div>
         <form id="scanForm" class="scan-form">
           <div class="scan-form__two-col">
             <label for="boxName">当前盒号/名称<input id="boxName" type="text" placeholder="例如 BOX-2026-001" autocomplete="off" /></label>
-            <label for="boxPosition">盒内位置<input id="boxPosition" type="text" placeholder="A1" autocomplete="off" /></label>
+            <label for="boxSize">样本盒规格
+              <select id="boxSize">
+                <option value="10">10×10（A-J 行，1-10 列）</option>
+                <option value="9">9×9（A-I 行，1-9 列）</option>
+              </select>
+            </label>
           </div>
+          <label for="boxPosition">盒内位置
+            <input id="boxPosition" type="text" placeholder="例如 A1、A2、B2" autocomplete="off" />
+            <small class="field-hint">每行从左到右编号，第一行第二列为 A2，第二行第二列为 B2。</small>
+          </label>
           <div class="scan-form__two-col">
             <label for="sampleType">样本类型
               <select id="sampleType">
@@ -109,26 +118,41 @@
         </form>
       </section>
 
+      <section class="panel panel--lookup">
+        <div class="panel__title">
+          <span class="step">4</span>
+          <div>
+            <h2>样本位置查找</h2>
+            <p>输入样本编号或条码，快速定位到冰箱、层架、列、抽箱、格子、盒号和盒内位置。</p>
+          </div>
+        </div>
+        <form id="locationSearchForm" class="lookup-form">
+          <input id="locationSearchInput" class="search" type="search" placeholder="输入样本编号或条码查找完整位置" autocomplete="off" />
+          <button class="button" type="submit">查找位置</button>
+        </form>
+        <div id="locationSearchResult" class="lookup-result"><span class="empty-inline">输入样本编号或条码后点击查找，显示冰箱到盒内位置的完整路径。</span></div>
+      </section>
+
       <section class="panel panel--table">
         <div class="panel__title panel__title--between">
           <div class="panel__title">
-            <span class="step">4</span>
+            <span class="step">5</span>
             <div>
               <h2>样本清单状态</h2>
-              <p>实时显示匹配结果、样本类型、样本来源、盒号、盒内位置与冰箱位置。</p>
+              <p>实时显示匹配结果、样本类型、样本来源、样本盒规格、盒内位置与完整冰箱位置。</p>
             </div>
           </div>
           <div class="actions">
-            <input id="searchInput" class="search" type="search" placeholder="搜索样本编号" />
+            <input id="searchInput" class="search" type="search" placeholder="搜索样本编号/条码/位置" />
             <button id="exportBtn" class="button button--ghost" type="button">导出结果 CSV</button>
           </div>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>样本编号</th><th>条码</th><th>状态</th><th>样本类型</th><th>样本来源</th><th>盒号</th><th>盒内位置</th><th>冰箱位置</th><th>入库时间</th></tr>
+              <tr><th>样本编号</th><th>条码</th><th>状态</th><th>样本类型</th><th>样本来源</th><th>盒号</th><th>样本盒规格</th><th>盒内位置</th><th>完整位置</th><th>入库时间</th></tr>
             </thead>
-            <tbody id="sampleTable"><tr><td colspan="9" class="empty">请上传样本清单。</td></tr></tbody>
+            <tbody id="sampleTable"><tr><td colspan="10" class="empty">请上传样本清单。</td></tr></tbody>
           </table>
         </div>
       </section>
