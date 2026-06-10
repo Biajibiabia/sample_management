@@ -22,6 +22,7 @@ const DEFAULT_BOX_SIZE = 10;
 const state = {
   samples: new Map(),
   scanLog: [],
+  scanHistory: [],
   boxCounter: 1,
   currentBoxPosition: 'A1',
   currentBoxSize: DEFAULT_BOX_SIZE,
@@ -78,6 +79,7 @@ function serialiseState() {
   return {
     samples: Array.from(state.samples.values()),
     scanLog: state.scanLog,
+    scanHistory: state.scanHistory,
     boxCounter: state.boxCounter,
     currentBoxPosition: state.currentBoxPosition,
     currentBoxSize: state.currentBoxSize,
@@ -96,6 +98,7 @@ function restoreState() {
     const parsed = JSON.parse(raw);
     state.samples = new Map((parsed.samples || []).map((sample) => [sample.id, migrateSample(sample)]));
     state.scanLog = parsed.scanLog || [];
+    state.scanHistory = parsed.scanHistory || inferScanHistoryFromLog();
     state.boxCounter = parsed.boxCounter || 1;
     state.currentBoxSize = normaliseBoxSize(parsed.currentBoxSize);
     state.currentBoxPosition = parsed.currentBoxPosition || inferNextBoxPosition() || 'A1';
@@ -142,6 +145,13 @@ function addLog(level, message, sampleId = '') {
   state.scanLog = state.scanLog.slice(0, 300);
 }
 
+function inferScanHistoryFromLog() {
+  return state.scanLog
+    .filter((item) => item.level === 'success' && state.samples.get(item.sampleId)?.status === '已入库')
+    .map((item) => item.sampleId)
+    .reverse();
+}
+
 function getCurrentBoxName() {
   const typed = normaliseId(elements.boxName.value);
   return typed || `BOX-${String(state.boxCounter).padStart(3, '0')}`;
@@ -158,6 +168,10 @@ function updateBoxSummary() {
   elements.positionPreview.textContent = `${normaliseId(elements.boxPosition.value) || state.currentBoxPosition || 'A1'} (${formatBoxSpec(state.currentBoxSize)})`;
 }
 
+function hasStoredSamples() {
+  return Array.from(state.samples.values()).some((sample) => sample.status === '已入库');
+}
+
 function updateStats() {
   const samples = Array.from(state.samples.values());
   const stored = samples.filter((sample) => sample.status === '已入库').length;
@@ -172,7 +186,7 @@ function renderTable() {
   const keyword = normaliseId(elements.searchInput.value).toLowerCase();
   const samples = Array.from(state.samples.values()).filter((sample) => matchesSampleKeyword(sample, keyword));
   if (!samples.length) {
-    elements.sampleTable.innerHTML = `<tr><td colspan="10" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
+    elements.sampleTable.innerHTML = `<tr><td colspan="11" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
     return;
   }
   elements.sampleTable.innerHTML = samples.map((sample) => `
@@ -187,6 +201,7 @@ function renderTable() {
       <td>${escapeHtml(sample.boxPosition || '-')}</td>
       <td>${escapeHtml(formatSampleFullLocation(sample) || '-')}</td>
       <td>${escapeHtml(sample.storedAt || '-')}</td>
+      <td>${sample.status === '已入库' ? `<button class="button button--mini button--ghost" type="button" data-withdraw-sample="${escapeHtml(sample.id)}">撤回</button>` : '-'}</td>
     </tr>
   `).join('');
 }
@@ -255,6 +270,7 @@ function renderLog() {
 
 function render() {
   elements.scanInput.disabled = state.samples.size === 0;
+  if (elements.undoLastScanBtn) elements.undoLastScanBtn.disabled = !hasStoredSamples();
   if (elements.boxPosition && !normaliseId(elements.boxPosition.value)) {
     elements.boxPosition.value = state.currentBoxPosition || '';
   }
@@ -364,6 +380,7 @@ async function handleFile(file) {
       storedAt: '',
     }]));
     state.scanLog = [];
+    state.scanHistory = [];
     state.boxCounter = 1;
     state.currentBoxPosition = 'A1';
     state.currentBoxSize = selectedBoxSize;
@@ -472,6 +489,7 @@ function handleScan(event) {
       sample.boxPosition = boxPosition;
       sample.location = buildLocation();
       sample.storedAt = new Date().toLocaleString('zh-CN', { hour12: false });
+      state.scanHistory.push(sample.id);
       state.currentBoxPosition = incrementBoxPosition(boxPosition, boxSize);
       elements.boxPosition.value = state.currentBoxPosition;
       const nextHint = state.currentBoxPosition ? `下一位置 ${state.currentBoxPosition}` : '当前样本盒已满，请完成当前盒并开始下一盒';
@@ -485,6 +503,61 @@ function handleScan(event) {
   render();
 }
 
+function getNextFreezerLocation(location) {
+  const freezerOrder = ['001', '002'];
+  const next = {
+    freezer: normaliseId(location?.freezer) || freezerOrder[0],
+    shelf: Number(location?.shelf) || 1,
+    column: Number(location?.column) || 1,
+    drawer: Number(location?.drawer) || 1,
+    cell: Number(location?.cell) || 1,
+  };
+
+  if (next.cell < 5) {
+    next.cell += 1;
+  } else if (next.drawer < 5) {
+    next.cell = 1;
+    next.drawer += 1;
+  } else if (next.column < 5) {
+    next.cell = 1;
+    next.drawer = 1;
+    next.column += 1;
+  } else if (next.shelf < 4) {
+    next.cell = 1;
+    next.drawer = 1;
+    next.column = 1;
+    next.shelf += 1;
+  } else {
+    const freezerIndex = freezerOrder.indexOf(next.freezer);
+    if (freezerIndex >= 0 && freezerIndex < freezerOrder.length - 1) {
+      next.freezer = freezerOrder[freezerIndex + 1];
+      next.shelf = 1;
+      next.column = 1;
+      next.drawer = 1;
+      next.cell = 1;
+    } else {
+      return null;
+    }
+  }
+
+  return {
+    freezer: next.freezer,
+    shelf: String(next.shelf),
+    column: String(next.column),
+    drawer: String(next.drawer),
+    cell: String(next.cell),
+  };
+}
+
+function applyLocationToControls(location) {
+  if (!location) return;
+  elements.freezer.value = location.freezer;
+  elements.shelf.value = location.shelf;
+  elements.column.value = location.column;
+  elements.drawer.value = location.drawer;
+  elements.cell.value = location.cell;
+}
+
 function finishCurrentBox(event) {
   event.preventDefault();
   const boxName = getCurrentBoxName();
@@ -496,15 +569,71 @@ function finishCurrentBox(event) {
       count += 1;
     }
   });
+  const nextLocation = getNextFreezerLocation(location);
   addLog('success', `盒子 ${boxName} 已放置到 ${formatLocation(location)}，本盒 ${count} 个样本`);
   state.boxCounter += 1;
   state.currentBoxPosition = 'A1';
   state.currentBoxSize = normaliseBoxSize(elements.boxSize.value);
   elements.boxName.value = `BOX-${String(state.boxCounter).padStart(3, '0')}`;
   elements.boxPosition.value = 'A1';
-  showScanMessage('success', `已完成 ${boxName}（本盒 ${count} 个样本），请开始扫描下一盒。`);
+  if (nextLocation) applyLocationToControls(nextLocation);
+  const locationHint = nextLocation ? `冰箱位置已自动跳到下一格：${formatLocation(nextLocation)}。` : '当前冰箱位置已到末格，请手动选择下一处存放位置。';
+  showScanMessage('success', `已完成 ${boxName}（本盒 ${count} 个样本），请开始扫描下一盒。${locationHint}`);
   elements.scanInput.focus();
   render();
+}
+
+function resetSampleInventory(sample) {
+  sample.status = '未入库';
+  sample.sampleType = '';
+  sample.sampleSource = '原始采集样本';
+  sample.returnCompany = '';
+  sample.boxName = '';
+  sample.boxPosition = '';
+  sample.location = null;
+  sample.boxSize = normaliseBoxSize(elements.boxSize?.value || state.currentBoxSize);
+  sample.storedAt = '';
+}
+
+function withdrawSample(sampleId, source = 'manual') {
+  const sample = state.samples.get(sampleId);
+  if (!sample || sample.status !== '已入库') {
+    showScanMessage('warning', `无法撤回：${sampleId || '样本'} 当前没有入库记录。`);
+    return false;
+  }
+  const previous = {
+    boxName: sample.boxName,
+    boxPosition: sample.boxPosition,
+    boxSize: sample.boxSize,
+    location: sample.location,
+  };
+  resetSampleInventory(sample);
+  state.scanHistory = state.scanHistory.filter((id) => id !== sample.id);
+
+  if (previous.boxName && previous.boxName === getCurrentBoxName()) {
+    state.currentBoxSize = normaliseBoxSize(previous.boxSize);
+    state.currentBoxPosition = previous.boxPosition || state.currentBoxPosition || 'A1';
+    elements.boxSize.value = String(state.currentBoxSize);
+    elements.boxPosition.value = state.currentBoxPosition;
+    if (previous.location) applyLocationToControls(previous.location);
+  }
+
+  const locationText = [previous.boxName, formatBoxSpec(previous.boxSize), previous.boxPosition].filter(Boolean).join(' / ');
+  addLog('warning', `已撤回入库记录${locationText ? `（原位置 ${locationText}）` : ''}，可重新扫码录入`, sample.id);
+  showScanMessage('warning', `已撤回 ${sample.id} 的扫码入库记录，可重新扫码录入。${previous.boxName === getCurrentBoxName() ? `盒内位置已回到 ${previous.boxPosition || state.currentBoxPosition}。` : '当前盒号不变，重新扫码时将使用当前输入的位置。'}`);
+  elements.scanInput.focus();
+  render();
+  return source === 'manual';
+}
+
+function undoLastScan() {
+  const sampleId = [...state.scanHistory].reverse().find((id) => state.samples.get(id)?.status === '已入库')
+    || state.scanLog.find((item) => item.level === 'success' && state.samples.get(item.sampleId)?.status === '已入库')?.sampleId;
+  if (!sampleId) {
+    showScanMessage('warning', '当前没有可撤回的扫码入库记录。');
+    return;
+  }
+  withdrawSample(sampleId, 'last');
 }
 
 function exportCsv() {
@@ -552,6 +681,7 @@ function resetTask() {
   localStorage.removeItem(STORAGE_KEY);
   state.samples = new Map();
   state.scanLog = [];
+  state.scanHistory = [];
   state.boxCounter = 1;
   state.currentBoxPosition = 'A1';
   state.currentBoxSize = DEFAULT_BOX_SIZE;
@@ -584,7 +714,7 @@ function syncSampleSourceControls() {
 }
 
 function bindElements() {
-  ['totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -612,8 +742,14 @@ function init() {
     handleFile(event.dataTransfer.files[0]);
   });
   elements.scanForm.addEventListener('submit', handleScan);
+  elements.undoLastScanBtn.addEventListener('click', undoLastScan);
   elements.locationForm.addEventListener('submit', finishCurrentBox);
   elements.searchInput.addEventListener('input', renderTable);
+  elements.sampleTable.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-withdraw-sample]');
+    if (!button) return;
+    withdrawSample(button.dataset.withdrawSample);
+  });
   elements.locationSearchForm.addEventListener('submit', (event) => {
     event.preventDefault();
     renderLocationSearch();
@@ -648,5 +784,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, SAMPLE_ID_HEADERS };
+  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, SAMPLE_ID_HEADERS };
 }
