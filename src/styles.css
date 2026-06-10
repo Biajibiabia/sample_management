@@ -202,11 +202,13 @@ button, input, select { font: inherit; }
 }
 
 .button:hover { transform: translateY(-1px); filter: brightness(0.96); }
+.button:disabled { cursor: not-allowed; opacity: 0.48; transform: none; filter: grayscale(0.2); }
 .button--ghost { background: #eaf2fb; color: var(--primary-dark); box-shadow: none; }
 .button--ghost:hover { background: #dceafa; }
 .button--danger { background: var(--accent-soft); color: var(--danger); box-shadow: none; }
 .button--danger:hover { background: #ffd3d8; }
 .button--wide { grid-column: 1 / -1; }
+.button--mini { padding: 0.45rem 0.72rem; border-radius: 0.7rem; font-size: 0.86rem; white-space: nowrap; }
 
 .scan-form, .location-grid {
   display: grid;
