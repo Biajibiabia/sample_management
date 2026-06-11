@@ -42,6 +42,9 @@ const {
   undoLastScan,
 } = sandbox.module.exports;
 
+assert.equal('boxCounter' in state, false);
+assert.equal('incrementBoxName' in sandbox.module.exports, false);
+
 function makeElement(value = '') {
   return {
     value,
