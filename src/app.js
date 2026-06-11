@@ -340,7 +340,7 @@ async function parseSampleFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (['xlsx', 'xls'].includes(ext)) {
     if (!window.XLSX) {
-      throw new Error('Excel 解析库未加载，请检查网络后刷新页面，或上传 CSV/TXT 文件。');
+      throw new Error('Excel 解析库未加载，请检查网络后刷新页面，或改用 CSV/TXT 文件。');
     }
     const data = await file.arrayBuffer();
     const workbook = window.XLSX.read(data, { type: 'array' });
@@ -354,9 +354,10 @@ async function parseSampleFile(file) {
 async function handleFile(file) {
   if (!file) return;
   elements.fileHint.textContent = `正在读取：${file.name}`;
+  showScanMessage('info', `正在读取：${file.name}`);
   try {
     const { records, headers } = await parseSampleFile(file);
-    if (!records.length) throw new Error('没有读取到样本编号，请确认清单中包含“样本编号 / sample_id / barcode / sample barcode / id”等字段或第一列有数据。');
+    if (!records.length) throw new Error('没有读取到样本编号，请确认文件中包含“样本编号 / sample_id / barcode / id”等字段，或第一列为样本编号。');
     const selectedBoxSize = normaliseBoxSize(elements.boxSize?.value);
     state.samples = new Map(records.map((record) => [record.id, {
       id: record.id,
@@ -385,8 +386,9 @@ async function handleFile(file) {
     addLog('success', `清单导入成功，共 ${records.length} 个样本`);
     render();
   } catch (error) {
-    elements.fileHint.textContent = '读取失败，请重新选择文件。';
-    showScanMessage('error', error.message);
+    const reason = error?.message || '未知错误';
+    elements.fileHint.textContent = `读取失败：${reason}`;
+    showScanMessage('error', `文件解析失败：${reason}`);
     beep('error');
   } finally {
     if (elements.fileInput) elements.fileInput.value = '';
@@ -709,7 +711,7 @@ function exportCsv() {
 }
 
 function downloadTemplate() {
-  downloadCsv('sample-list-template.csv', [['样本编号', '姓名', 'sample barcode', '备注'], ['SAMPLE-001', '张三', 'SAMPLE-001', ''], ['SAMPLE-002', '李四', 'SAMPLE-002', '']]);
+  downloadCsv('sample-list-template.csv', [['样本编号'], ['S001'], ['S002'], ['S003']]);
 }
 
 function downloadCsv(filename, rows) {
@@ -760,7 +762,7 @@ function syncSampleSourceControls() {
 }
 
 function bindElements() {
-  ['undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['systemLoadStatus', 'undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -822,6 +824,8 @@ function init() {
   elements.clearLogBtn.addEventListener('click', clearScanLog);
   syncSampleSourceControls();
   render();
+  if (elements.systemLoadStatus) elements.systemLoadStatus.textContent = '系统已加载';
+  console.log('WHALE sample inventory app loaded');
 }
 
 if (typeof document !== 'undefined') {

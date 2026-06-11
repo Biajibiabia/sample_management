@@ -13,6 +13,11 @@
       <div class="hero__copy">
         <p class="eyebrow">WHALE · Biobank Inventory</p>
         <h1>WHALE生物样本扫码入库管理系统</h1>
+        <div class="version-strip" aria-label="版本和加载状态">
+          <span>v2026-06-11 manual-box</span>
+          <span id="systemLoadStatus">系统加载中</span>
+        </div>
+        <noscript><p class="load-warning">系统未加载：浏览器禁用了 JavaScript，请启用后刷新页面。</p></noscript>
         <p class="hero__desc">上传样本清单，手动输入盒号后逐支扫码匹配，可按 9×9 或 10×10 样本盒自动递增盒内位置，按盒记录冰箱、层架、列、抽箱和格子位置，并导出完整入库结果。</p>
       </div>
       <div class="hero__stats" aria-label="入库统计">
@@ -95,8 +100,8 @@
           <div class="scan-form__row">
             <input id="scanInput" type="text" placeholder="请扫描或输入样本编号" autocomplete="off" disabled />
             <button class="button" type="submit">登记入库</button>
+            <button id="undoLastScanBtn" class="button button--ghost" type="button" disabled>撤回上一支</button>
           </div>
-          <button id="undoLastScanBtn" class="button button--ghost" type="button" disabled>撤回上一支</button>
         </form>
         <div id="scanMessage" class="message" role="status" aria-live="polite">请先上传样本清单。</div>
       </section>
