@@ -202,11 +202,15 @@ button, input, select { font: inherit; }
 }
 
 .button:hover { transform: translateY(-1px); filter: brightness(0.96); }
+.button:disabled { cursor: not-allowed; opacity: 0.48; transform: none; filter: grayscale(0.2); }
 .button--ghost { background: #eaf2fb; color: var(--primary-dark); box-shadow: none; }
 .button--ghost:hover { background: #dceafa; }
 .button--danger { background: var(--accent-soft); color: var(--danger); box-shadow: none; }
 .button--danger:hover { background: #ffd3d8; }
+.button--warning { background: #fff4d6; color: var(--warning); box-shadow: none; border: 1px solid #fbd38d; }
+.button--warning:hover { background: #fde8a8; }
 .button--wide { grid-column: 1 / -1; }
+.button--mini { padding: 0.45rem 0.72rem; border-radius: 0.7rem; font-size: 0.86rem; white-space: nowrap; }
 
 .scan-form, .location-grid {
   display: grid;
@@ -232,9 +236,40 @@ button, input, select { font: inherit; }
   box-shadow: 0 0 0 4px var(--ring);
 }
 
-.scan-form__row, .lookup-form { display: grid; grid-template-columns: 1fr auto; gap: 0.75rem; }
+.scan-form__row, .lookup-form { display: grid; gap: 0.75rem; }
+.scan-form__row { grid-template-columns: minmax(0, 1fr) auto auto; }
+.lookup-form { grid-template-columns: 1fr auto; }
 .scan-form__two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
 #scanInput { font-size: 1.25rem; font-weight: 900; letter-spacing: 0.03em; }
+
+.recent-scans {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px dashed rgba(15, 76, 129, 0.24);
+  border-radius: 1rem;
+  background: #f8fbff;
+}
+
+.recent-scans > strong { color: #244258; }
+.recent-scans__list { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
+.recent-scan-chip {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 9.4rem;
+  border: 1px solid #d6e4f0;
+  border-radius: 0.85rem;
+  padding: 0.62rem 0.72rem;
+  background: white;
+  color: var(--primary-dark);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(15, 76, 129, 0.08);
+}
+.recent-scan-chip:hover { border-color: var(--accent); background: #fff7f8; transform: translateY(-1px); }
+.recent-scan-chip--latest { border-color: #fbd38d; background: #fffbeb; }
+.recent-scan-chip span { font-weight: 900; }
+.recent-scan-chip small { color: var(--muted); font-weight: 700; }
 
 .message {
   margin-top: 1rem;

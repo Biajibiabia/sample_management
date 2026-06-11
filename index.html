@@ -95,6 +95,11 @@
           <div class="scan-form__row">
             <input id="scanInput" type="text" placeholder="请扫描或输入样本编号" autocomplete="off" disabled />
             <button class="button" type="submit">登记入库</button>
+            <button id="undoLastScanBtn" class="button button--warning" type="button" disabled>撤回上一支</button>
+          </div>
+          <div id="recentScansPanel" class="recent-scans" aria-live="polite">
+            <strong>最近扫码撤回</strong>
+            <div id="recentScansList" class="recent-scans__list">扫码后这里会显示最近记录，可撤回前面的扫码并重新录入。</div>
           </div>
         </form>
         <div id="scanMessage" class="message" role="status" aria-live="polite">请先上传样本清单。</div>
@@ -150,9 +155,9 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>样本编号</th><th>条码</th><th>状态</th><th>样本类型</th><th>样本来源</th><th>盒号</th><th>样本盒规格</th><th>盒内位置</th><th>完整位置</th><th>入库时间</th></tr>
+              <tr><th>样本编号</th><th>条码</th><th>状态</th><th>样本类型</th><th>样本来源</th><th>盒号</th><th>样本盒规格</th><th>盒内位置</th><th>完整位置</th><th>入库时间</th><th>操作</th></tr>
             </thead>
-            <tbody id="sampleTable"><tr><td colspan="10" class="empty">请上传样本清单。</td></tr></tbody>
+            <tbody id="sampleTable"><tr><td colspan="11" class="empty">请上传样本清单。</td></tr></tbody>
           </table>
         </div>
       </section>

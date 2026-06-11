@@ -18,7 +18,10 @@ const {
   formatSampleFullLocation,
   formatBoxSpec,
   incrementBoxPosition,
+  incrementBoxName,
+  getNextFreezerLocation,
   normaliseBoxPosition,
+  normaliseFreezerLocation,
   normaliseHeader,
   normaliseId,
   parseDelimitedText,
@@ -73,6 +76,15 @@ assert.equal(incrementBoxPosition('A1'), 'A2');
 assert.equal(incrementBoxPosition('A10', 10), 'B1');
 assert.equal(incrementBoxPosition('I9', 9), '');
 assert.equal(incrementBoxPosition('J10', 10), '');
+assert.equal(incrementBoxName('BOX-001'), 'BOX-002');
+assert.equal(incrementBoxName('BOX-2026-009'), 'BOX-2026-010');
+assert.equal(incrementBoxName('手工盒A', 12), 'BOX-012');
+assert.equal(JSON.stringify(normaliseFreezerLocation({ freezer: '999', shelf: '9', column: '0', drawer: 'x', cell: '2' })), JSON.stringify({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '2' }));
+assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '1' })), JSON.stringify({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '2' }));
+assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '5' })), JSON.stringify({ freezer: '001', shelf: '1', column: '1', drawer: '2', cell: '1' }));
+assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '001', shelf: '1', column: '2', drawer: '1', cell: '1' }));
+assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '4', column: '5', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '002', shelf: '1', column: '1', drawer: '1', cell: '1' }));
+assert.equal(getNextFreezerLocation({ freezer: '002', shelf: '4', column: '5', drawer: '5', cell: '5' }), null);
 assert.equal(formatSampleFullLocation({
   id: 'S-1',
   status: '已入库',
