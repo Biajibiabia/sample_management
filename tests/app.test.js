@@ -19,12 +19,14 @@ const {
   formatBoxSpec,
   incrementBoxPosition,
   getNextFreezerLocation,
+  findNextAvailablePosition,
   normaliseBoxPosition,
   normaliseHeader,
   normaliseId,
   parseDelimitedText,
   rowsToSampleIds,
   rowsToSampleRecords,
+  EXPORT_BASE_HEADERS,
 } = sandbox.module.exports;
 
 assert.equal(normaliseId('  SAMPLE-001\n'), 'SAMPLE-001');
@@ -74,11 +76,18 @@ assert.equal(incrementBoxPosition('A1'), 'A2');
 assert.equal(incrementBoxPosition('A10', 10), 'B1');
 assert.equal(incrementBoxPosition('I9', 9), '');
 assert.equal(incrementBoxPosition('J10', 10), '');
+assert.equal(findNextAvailablePosition([], 'A1', 10), 'A1');
+assert.equal(findNextAvailablePosition(['A1'], 'A1', 10), 'A2');
+assert.equal(findNextAvailablePosition(['A1', 'A2', 'A3'], 'A1', 10), 'A4');
+assert.equal(findNextAvailablePosition(['A1', 'A2'], 'A2', 10), 'A3');
+assert.equal(findNextAvailablePosition(['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9'], 'A1', 9), 'B1');
+assert.equal(findNextAvailablePosition(['I9'], 'I9', 9), '');
 assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '1' })), JSON.stringify({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '2' }));
 assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '1', cell: '5' })), JSON.stringify({ freezer: '001', shelf: '1', column: '1', drawer: '2', cell: '1' }));
 assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '001', shelf: '1', column: '2', drawer: '1', cell: '1' }));
 assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '4', column: '5', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '002', shelf: '1', column: '1', drawer: '1', cell: '1' }));
 assert.equal(getNextFreezerLocation({ freezer: '002', shelf: '4', column: '5', drawer: '5', cell: '5' }), null);
+assert.equal(JSON.stringify(EXPORT_BASE_HEADERS), JSON.stringify(['样本编号', '条码', '入库状态', '样本类型', '样本来源', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间']));
 assert.equal(formatSampleFullLocation({
   id: 'S-1',
   status: '已入库',
