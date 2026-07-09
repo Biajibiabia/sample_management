@@ -105,8 +105,23 @@ function getBoxes() {
   Array.from(state.samples.values()).forEach((sample) => {
     if (sample.status !== '已入库' || !sample.boxName) return;
     const key = getSampleBoxKey(sample);
-    if (!boxes.has(key)) boxes.set(key, { key, boxName: sample.boxName, location: sample.location, boxSize: sample.boxSize, count: 0 });
-    boxes.get(key).count += 1;
+    if (!boxes.has(key)) boxes.set(key, {
+      key,
+      boxName: sample.boxName,
+      boxLabelNo: sample.boxLabelNo || '',
+      sampleType: sample.sampleType || '',
+      sampleSource: sample.sampleSource || '',
+      returnCompany: sample.returnCompany || '',
+      location: sample.location,
+      boxSize: sample.boxSize,
+      count: 0,
+    });
+    const box = boxes.get(key);
+    box.count += 1;
+    box.boxLabelNo = box.boxLabelNo || sample.boxLabelNo || '';
+    box.sampleType = box.sampleType || sample.sampleType || '';
+    box.sampleSource = box.sampleSource || sample.sampleSource || '';
+    box.returnCompany = box.returnCompany || sample.returnCompany || '';
   });
   return Array.from(boxes.values());
 }
@@ -114,6 +129,25 @@ function getBoxes() {
 function findBoxNameConflicts(boxName, location) {
   const key = getBoxKeyFromParts(boxName, location);
   return getBoxes().filter((box) => box.boxName === boxName && box.key !== key);
+}
+
+function getOccupiedStorageKeys() {
+  return new Set(getBoxes().filter((box) => box.location).map((box) => getLocationKey(box.location)));
+}
+
+function getLocationKey(location) {
+  if (!location) return '';
+  return [location.freezer, location.shelf, location.column, location.drawer, location.cell].map(normaliseId).join('|');
+}
+
+function findNextAvailableStorageLocation(startLocation = buildLocation()) {
+  if (!state.storageSpaces.length) state.storageSpaces = createDefaultStorageSpaces();
+  const occupied = getOccupiedStorageKeys();
+  const startKey = getLocationKey(startLocation);
+  const startIndex = Math.max(0, state.storageSpaces.findIndex((space) => getLocationKey(space) === startKey));
+  return state.storageSpaces.slice(startIndex).find((space) => !occupied.has(getLocationKey(space)))
+    || state.storageSpaces.find((space) => !occupied.has(getLocationKey(space)))
+    || null;
 }
 
 function getSelectedBox() {
@@ -271,6 +305,7 @@ function updateStats() {
   elements.pendingCount.textContent = samples.length - stored;
   elements.mismatchCount.textContent = state.scanLog.filter((item) => item.level === 'error').length;
   updateBoxSummary();
+  renderStorageOccupancy();
 }
 
 function renderTable() {
@@ -359,6 +394,36 @@ function renderLog() {
       <em>${escapeHtml(item.message)}</em>
     </li>
   `).join('');
+}
+
+function renderStorageOccupancy() {
+  if (!elements.storageOccupancy) return;
+  if (!state.storageSpaces.length) state.storageSpaces = createDefaultStorageSpaces();
+  const occupied = getOccupiedStorageKeys();
+  const currentLocation = buildLocation();
+  const nextAvailable = findNextAvailableStorageLocation(currentLocation);
+  const currentKey = getLocationKey(currentLocation);
+  const usedCount = occupied.size;
+  const nearby = state.storageSpaces
+    .filter((space) => space.freezer === currentLocation.freezer && space.shelf === currentLocation.shelf && space.column === currentLocation.column && space.drawer === currentLocation.drawer)
+    .map((space) => {
+      const key = getLocationKey(space);
+      const box = getBoxes().find((item) => getLocationKey(item.location) === key);
+      const classes = ['storage-cell'];
+      if (occupied.has(key)) classes.push('storage-cell--used');
+      if (key === currentKey) classes.push('storage-cell--current');
+      if (nextAvailable && key === getLocationKey(nextAvailable)) classes.push('storage-cell--next');
+      return `<span class="${classes.join(' ')}" title="${escapeHtml(box ? `${box.boxLabelNo || box.boxName} / ${box.boxName}` : '可用')}">${escapeHtml(space.cell)}${box ? `<small>${escapeHtml(box.boxLabelNo || box.boxName)}</small>` : ''}</span>`;
+    }).join('');
+  elements.storageOccupancy.innerHTML = `
+    <div class="storage-summary">
+      <strong>已占用 ${usedCount}/${state.storageSpaces.length} 个存储格</strong>
+      <span>当前选择：${escapeHtml(formatLocation(currentLocation))}</span>
+      <span>下一次可用：${nextAvailable ? escapeHtml(formatLocation(nextAvailable)) : '暂无可用位置'}</span>
+    </div>
+    <div class="storage-legend"><span class="dot dot--used"></span>已占用 <span class="dot dot--next"></span>下一可用 <span class="dot dot--current"></span>当前选择</div>
+    <div class="storage-cells">${nearby}</div>
+  `;
 }
 
 function render() {
@@ -646,6 +711,7 @@ function handleScan(event) {
       sample.sampleSource = elements.sampleSource.value;
       sample.returnCompany = sample.sampleSource === '测序返回样本' ? normaliseId(elements.returnCompany.value) : '';
       sample.boxName = boxName;
+      sample.boxLabelNo = normaliseId(elements.boxLabelNo?.value) || sample.boxLabelNo || boxName;
       sample.boxSize = boxSize;
       sample.boxPosition = availableBoxPosition;
       sample.location = location;
@@ -732,7 +798,8 @@ function finishCurrentBox(event) {
   const location = buildLocation();
   let count = 0;
   state.samples.forEach((sample) => {
-    if (sample.boxName === boxName && sample.status === '已入库') {
+    const isCurrentBoxSample = sample.boxName === boxName && (!getSelectedBox() || getSampleBoxKey(sample) === getSelectedBox().key);
+    if (isCurrentBoxSample && sample.status === '已入库') {
       sample.location = location;
       count += 1;
     }
@@ -747,7 +814,9 @@ function finishCurrentBox(event) {
   addLog('success', `盒子 ${boxName} 已放置到 ${formatLocation(location)}，本盒 ${count} 个样本`);
   state.currentBoxPosition = 'A1';
   state.currentBoxSize = normaliseBoxSize(elements.boxSize.value);
+  state.selectedBoxKey = '';
   elements.boxName.value = '';
+  if (elements.boxLabelNo) elements.boxLabelNo.value = '';
   elements.boxPosition.value = 'A1';
   if (nextLocation) applyLocationToControls(nextLocation);
   const locationHint = nextLocation ? `冰箱位置已自动跳到下一格：${formatLocation(nextLocation)}。` : '当前冰箱位置已到末格，请手动选择下一处存放位置。';
@@ -873,6 +942,7 @@ function resetTask() {
   state.storageSpaces = createDefaultStorageSpaces();
   state.selectedBoxKey = '';
   elements.boxName.value = '';
+  if (elements.boxLabelNo) elements.boxLabelNo.value = '';
   elements.boxPosition.value = 'A1';
   if (elements.boxSize) elements.boxSize.value = String(DEFAULT_BOX_SIZE);
   elements.fileHint.textContent = '尚未选择文件';
@@ -898,21 +968,23 @@ function renderBoxSearch() {
   if (!elements.boxSearchResult) return;
   const keyword = normaliseId(elements.boxSearchInput?.value).toLowerCase();
   if (!keyword && !state.selectedBoxKey) {
-    elements.boxSearchResult.innerHTML = '<span class="empty-inline">请输入盒号或冰箱位置关键词后检索；系统不会一开始列出全部样本盒，避免万级数据卡顿。</span>';
+    elements.boxSearchResult.innerHTML = '<span class="empty-inline">请输入完整盒子标注编号后精准检索；系统不会一开始列出全部样本盒，避免万级数据卡顿。</span>';
     return;
   }
-  const boxes = getBoxes().filter((box) => (box.key === state.selectedBoxKey) || [box.boxName, formatLocation(box.location), box.key].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  const boxes = getBoxes().filter((box) => (box.key === state.selectedBoxKey) || (keyword && String(box.boxLabelNo || '').toLowerCase() === keyword));
   if (!boxes.length) {
-    elements.boxSearchResult.innerHTML = '<span class="empty-inline">未找到盒号；可在左侧直接输入新盒号入库，或换一个关键词检索。</span>';
+    elements.boxSearchResult.innerHTML = '<span class="empty-inline">未找到匹配的盒子标注编号；请确认输入与“盒子标注编号”列完全一致。</span>';
     return;
   }
   elements.boxSearchResult.innerHTML = boxes.slice(0, 30).map((box) => `
     <div class="lookup-card ${box.key === state.selectedBoxKey ? 'lookup-card--selected' : ''}">
-      <strong>${escapeHtml(box.boxName)}</strong>
+      <strong>${escapeHtml(box.boxLabelNo || box.boxName)}</strong>
+      <span>盒号/名称：${escapeHtml(box.boxName)} · 标注编号：${escapeHtml(box.boxLabelNo || '-')}</span>
       <span>${escapeHtml(formatLocation(box.location))}</span>
-      <span>${escapeHtml(formatBoxSpec(box.boxSize))} · ${box.count} 支样本</span>
+      <span>${escapeHtml(formatBoxSpec(box.boxSize))} · ${escapeHtml(box.sampleType || '-')} · ${escapeHtml(box.sampleSource || '-')} · 返回公司：${escapeHtml(box.returnCompany || '-')} · ${box.count} 支样本</span>
       <button class="button button--mini" type="button" data-select-box="${escapeHtml(box.key)}">选择核查/补录</button>
       <button class="button button--mini button--ghost" type="button" data-rename-box="${escapeHtml(box.key)}">修订盒号</button>
+      <button class="button button--mini button--danger" type="button" data-reinput-box="${escapeHtml(box.key)}">整盒重新录入</button>
     </div>
   `).join('');
 }
@@ -922,12 +994,37 @@ function selectBoxForReview(key) {
   if (!box) return;
   state.selectedBoxKey = key;
   elements.boxName.value = box.boxName;
+  if (elements.boxLabelNo) elements.boxLabelNo.value = box.boxLabelNo || '';
   elements.boxSize.value = String(normaliseBoxSize(box.boxSize));
   applyLocationToControls(box.location);
+  if (box.sampleType) elements.sampleType.value = box.sampleType;
+  if (box.sampleSource) elements.sampleSource.value = box.sampleSource;
+  if (elements.returnCompany) elements.returnCompany.value = box.returnCompany || '';
+  syncSampleSourceControls();
   state.currentBoxSize = normaliseBoxSize(box.boxSize);
   state.currentBoxPosition = findNextAvailableBoxPosition(box.boxName, 'A1', state.currentBoxSize);
   elements.boxPosition.value = state.currentBoxPosition || '';
   showScanMessage('info', `已选择盒号 ${box.boxName} 进行核查/补录；重复样本会提示已入库，未入库样本将补充到该盒空位。`);
+  render();
+}
+
+function reinputWholeBox(key) {
+  const box = getBoxes().find((item) => item.key === key);
+  if (!box) return;
+  if (!confirm(`确认将 ${box.boxLabelNo || box.boxName} 整盒样本撤回为未入库，并从 A1 开始重新录入？`)) return;
+  state.samples.forEach((sample) => {
+    if (getSampleBoxKey(sample) === key) resetSampleInventory(sample);
+  });
+  state.selectedBoxKey = '';
+  elements.boxName.value = box.boxName;
+  if (elements.boxLabelNo) elements.boxLabelNo.value = box.boxLabelNo || '';
+  elements.boxSize.value = String(normaliseBoxSize(box.boxSize));
+  if (box.location) applyLocationToControls(box.location);
+  state.currentBoxSize = normaliseBoxSize(box.boxSize);
+  state.currentBoxPosition = 'A1';
+  elements.boxPosition.value = 'A1';
+  addLog('warning', `整盒重新录入：${box.boxLabelNo || box.boxName} 已撤回 ${box.count} 支样本`);
+  showScanMessage('warning', `已开启整盒重新录入：${box.boxLabelNo || box.boxName} 的 ${box.count} 支样本已撤回为未入库，请从 A1 开始扫码。`);
   render();
 }
 
@@ -946,6 +1043,7 @@ function renameBox(key) {
   });
   state.selectedBoxKey = getBoxKeyFromParts(nextName, box.location);
   elements.boxName.value = nextName;
+  if (elements.boxLabelNo && elements.boxLabelNo.value === box.boxName) elements.boxLabelNo.value = nextName;
   addLog('success', `盒号已由 ${box.boxName} 修订为 ${nextName}`);
   render();
 }
@@ -957,7 +1055,7 @@ function syncSampleSourceControls() {
 }
 
 function bindElements() {
-  ['systemLoadStatus', 'undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'boxSearchInput', 'boxSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['systemLoadStatus', 'storageOccupancy', 'undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxLabelNo', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'boxSearchInput', 'boxSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -1001,10 +1099,14 @@ function init() {
   elements.boxSearchResult.addEventListener('click', (event) => {
     const selectButton = event.target.closest('[data-select-box]');
     const renameButton = event.target.closest('[data-rename-box]');
+    const reinputButton = event.target.closest('[data-reinput-box]');
     if (selectButton) selectBoxForReview(selectButton.dataset.selectBox);
     if (renameButton) renameBox(renameButton.dataset.renameBox);
+    if (reinputButton) reinputWholeBox(reinputButton.dataset.reinputBox);
   });
   elements.boxName.addEventListener('input', () => { state.selectedBoxKey = ''; updateBoxSummary(); renderBoxSearch(); });
+  if (elements.boxLabelNo) elements.boxLabelNo.addEventListener('input', persistState);
+  ['freezer', 'shelf', 'column', 'drawer', 'cell'].forEach((id) => elements[id].addEventListener('change', () => { renderStorageOccupancy(); persistState(); }));
   elements.boxSize.addEventListener('change', () => {
     state.currentBoxSize = normaliseBoxSize(elements.boxSize.value);
     const currentPosition = normaliseBoxPosition(elements.boxPosition.value || state.currentBoxPosition, state.currentBoxSize);
