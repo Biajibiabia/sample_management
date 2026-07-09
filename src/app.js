@@ -15,6 +15,14 @@ const SAMPLE_ID_HEADER_ALIASES = new Set([
 const TABLE_RENDER_LIMIT = 300;
 const STORAGE_SAMPLE_COMPACT_FIELDS = ['id', 'barcode', 'status', 'sampleType', 'sampleSource', 'sequencingOmics', 'returnCompany', 'boxName', 'boxLabelNo', 'remainingVolume', 'operator', 'boxPosition', 'location', 'boxSize', 'storedAt'];
 const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '原测序组学', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间', '盒子标注编号', '样本余量(μL)', '操作员'];
+const FREEZER_LOCATION_HEADERS = {
+  freezer: ['冰箱编号', '冰箱'],
+  shelf: ['层架序号', '层架'],
+  column: ['列序号', '列'],
+  drawer: ['抽箱序号', '抽箱'],
+  cell: ['格子序号', '格子'],
+};
+const DATE_TIME_HEADERS = ['扫码时间', '入库时间', '登记时间', '日期', '时间', 'stored_at', 'storedat'];
 const BOX_SPECS = {
   '10': { size: 10, label: '10×10', lastRow: 'J' },
   '9': { size: 9, label: '9×9', lastRow: 'I' },
@@ -76,19 +84,34 @@ function createDefaultStorageSpaces() {
 
 function getHeaderValue(record, names, fallback = '') {
   const wanted = names.map(normaliseHeader);
-  const key = Object.keys(record.originalData || {}).find((header) => wanted.includes(normaliseHeader(header)));
+  const key = Object.keys(record.originalData || {}).find((header) => {
+    const normalised = normaliseHeader(header);
+    return wanted.some((name) => normalised === name || normalised.includes(name) || name.includes(normalised));
+  });
   return key ? normaliseId(record.originalData[key]) : fallback;
+}
+
+function normaliseFreezerLocation(location = {}) {
+  const freezer = normaliseId(location.freezer).padStart(3, '0');
+  const shelf = String(Number(normaliseId(location.shelf)));
+  const column = String(Number(normaliseId(location.column)));
+  const drawer = String(Number(normaliseId(location.drawer)));
+  const cell = String(Number(normaliseId(location.cell)));
+  if (!['001', '002'].includes(freezer)) return null;
+  if (![shelf, column, drawer, cell].every((value) => /^[1-5]$/.test(value))) return null;
+  if (Number(shelf) > 4) return null;
+  return { freezer, shelf, column, drawer, cell };
 }
 
 function parseImportedLocation(record) {
   const location = {
-    freezer: getHeaderValue(record, ['冰箱']),
-    shelf: getHeaderValue(record, ['层架']),
-    column: getHeaderValue(record, ['列']),
-    drawer: getHeaderValue(record, ['抽箱']),
-    cell: getHeaderValue(record, ['格子']),
+    freezer: getHeaderValue(record, FREEZER_LOCATION_HEADERS.freezer),
+    shelf: getHeaderValue(record, FREEZER_LOCATION_HEADERS.shelf),
+    column: getHeaderValue(record, FREEZER_LOCATION_HEADERS.column),
+    drawer: getHeaderValue(record, FREEZER_LOCATION_HEADERS.drawer),
+    cell: getHeaderValue(record, FREEZER_LOCATION_HEADERS.cell),
   };
-  return Object.values(location).some(Boolean) ? location : null;
+  return normaliseFreezerLocation(location);
 }
 
 function getBoxKeyFromParts(boxName, location) {
@@ -132,7 +155,13 @@ function findBoxNameConflicts(boxName, location) {
 }
 
 function getOccupiedStorageKeys() {
-  return new Set(getBoxes().filter((box) => box.location).map((box) => getLocationKey(box.location)));
+  const occupied = new Set();
+  state.samples.forEach((sample) => {
+    if (sample.status !== '已入库') return;
+    const location = normaliseFreezerLocation(sample.location);
+    if (location) occupied.add(getLocationKey(location));
+  });
+  return occupied;
 }
 
 function getLocationKey(location) {
@@ -457,10 +486,28 @@ function detectSampleColumn(headers) {
   return index >= 0 ? index : 0;
 }
 
+function isDateTimeHeader(header) {
+  const normalised = normaliseHeader(header);
+  return DATE_TIME_HEADERS.some((name) => normaliseHeader(name) === normalised || normalised.includes(normaliseHeader(name)));
+}
+
+function formatExcelSerialDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toLocaleString('zh-CN', { hour12: false });
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 20000 || numeric > 80000) return normaliseId(value);
+  const utcMilliseconds = Math.round((numeric - 25569) * 86400 * 1000);
+  return new Date(utcMilliseconds).toLocaleString('zh-CN', { hour12: false, timeZone: 'UTC' });
+}
+
+function normaliseCellValue(header, value) {
+  if (isDateTimeHeader(header)) return formatExcelSerialDate(value);
+  return normaliseId(value);
+}
+
 function rowToRecord(headers, row) {
   return headers.reduce((record, header, index) => {
     const safeHeader = normaliseId(header) || `字段${index + 1}`;
-    record[safeHeader] = normaliseId(row[index]);
+    record[safeHeader] = normaliseCellValue(safeHeader, row[index]);
     return record;
   }, {});
 }
@@ -666,7 +713,7 @@ function handleScan(event) {
     addLog('error', '未在样本清单中匹配成功', sampleId);
     beep('error');
   } else if (sample.status === '已入库') {
-    showScanMessage('warning', `重复扫码：${sampleId} 已在 ${sample.storedAt || '此前'} 入库，位置 ${sample.boxPosition || '-'}。`);
+    showScanMessage('warning', `重复扫码：${sampleId} 已在 ${sample.storedAt || '此前'} 入库，完整位置：${formatSampleFullLocation(sample) || sample.boxPosition || '-'}。`);
     addLog('warning', '重复扫码，样本此前已入库', sampleId);
     beep('error');
   } else {
@@ -971,7 +1018,7 @@ function renderBoxSearch() {
     elements.boxSearchResult.innerHTML = '<span class="empty-inline">请输入完整盒子标注编号后精准检索；系统不会一开始列出全部样本盒，避免万级数据卡顿。</span>';
     return;
   }
-  const boxes = getBoxes().filter((box) => (box.key === state.selectedBoxKey) || (keyword && String(box.boxLabelNo || '').toLowerCase() === keyword));
+  const boxes = getBoxes().filter((box) => (box.key === state.selectedBoxKey) || (keyword && [box.boxLabelNo, box.boxName].some((value) => String(value || '').toLowerCase() === keyword)));
   if (!boxes.length) {
     elements.boxSearchResult.innerHTML = '<span class="empty-inline">未找到匹配的盒子标注编号；请确认输入与“盒子标注编号”列完全一致。</span>';
     return;
@@ -980,8 +1027,8 @@ function renderBoxSearch() {
     <div class="lookup-card ${box.key === state.selectedBoxKey ? 'lookup-card--selected' : ''}">
       <strong>${escapeHtml(box.boxLabelNo || box.boxName)}</strong>
       <span>盒号/名称：${escapeHtml(box.boxName)} · 标注编号：${escapeHtml(box.boxLabelNo || '-')}</span>
-      <span>${escapeHtml(formatLocation(box.location))}</span>
-      <span>${escapeHtml(formatBoxSpec(box.boxSize))} · ${escapeHtml(box.sampleType || '-')} · ${escapeHtml(box.sampleSource || '-')} · 返回公司：${escapeHtml(box.returnCompany || '-')} · ${box.count} 支样本</span>
+      <span>完整位置：${escapeHtml(formatLocation(box.location) || '-')}</span>
+      <span>规格：${escapeHtml(formatBoxSpec(box.boxSize))} · 类型：${escapeHtml(box.sampleType || '-')} · 来源：${escapeHtml(box.sampleSource || '-')} · 返回公司：${escapeHtml(box.returnCompany || '-')} · ${box.count} 支样本</span>
       <button class="button button--mini" type="button" data-select-box="${escapeHtml(box.key)}">选择核查/补录</button>
       <button class="button button--mini button--ghost" type="button" data-rename-box="${escapeHtml(box.key)}">修订盒号</button>
       <button class="button button--mini button--danger" type="button" data-reinput-box="${escapeHtml(box.key)}">整盒重新录入</button>
@@ -1137,5 +1184,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { serialiseSample, normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
+  module.exports = { serialiseSample, normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, normaliseFreezerLocation, parseImportedLocation, getOccupiedStorageKeys, formatExcelSerialDate, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
 }
