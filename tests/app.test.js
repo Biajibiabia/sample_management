@@ -27,6 +27,8 @@ const {
   rowsToSampleIds,
   rowsToSampleRecords,
   EXPORT_BASE_HEADERS,
+  createDefaultStorageSpaces,
+  getBoxKeyFromParts,
 } = sandbox.module.exports;
 
 assert.equal(normaliseId('  SAMPLE-001\n'), 'SAMPLE-001');
@@ -87,7 +89,9 @@ assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1',
 assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '1', column: '1', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '001', shelf: '1', column: '2', drawer: '1', cell: '1' }));
 assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '4', column: '5', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '002', shelf: '1', column: '1', drawer: '1', cell: '1' }));
 assert.equal(getNextFreezerLocation({ freezer: '002', shelf: '4', column: '5', drawer: '5', cell: '5' }), null);
-assert.equal(JSON.stringify(EXPORT_BASE_HEADERS), JSON.stringify(['样本编号', '条码', '入库状态', '样本类型', '样本来源', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间']));
+assert.equal(JSON.stringify(EXPORT_BASE_HEADERS), JSON.stringify(['样本编号', '条码', '入库状态', '样本类型', '样本来源', '原测序组学', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间', '盒子标注编号', '样本余量(μL)', '操作员']));
+assert.equal(createDefaultStorageSpaces().length, 1000);
+assert.equal(getBoxKeyFromParts('BOX-1', { freezer: '001', shelf: '1', column: '2', drawer: '3', cell: '4' }), '001|1|2|3|4|BOX-1');
 assert.equal(formatSampleFullLocation({
   id: 'S-1',
   status: '已入库',

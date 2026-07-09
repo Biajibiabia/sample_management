@@ -14,11 +14,11 @@
         <p class="eyebrow">WHALE · Biobank Inventory</p>
         <h1>WHALE生物样本扫码入库管理系统</h1>
         <div class="version-strip" aria-label="版本和加载状态">
-          <span>v2026-06-11 manual-box</span>
+          <span>v2026-07-09 storage-review</span>
           <span id="systemLoadStatus">系统加载中</span>
         </div>
         <noscript><p class="load-warning">系统未加载：浏览器禁用了 JavaScript，请启用后刷新页面。</p></noscript>
-        <p class="hero__desc">上传样本清单，手动输入盒号后逐支扫码匹配，可按 9×9 或 10×10 样本盒自动递增盒内位置，按盒记录冰箱、层架、列、抽箱和格子位置，并导出完整入库结果。</p>
+        <p class="hero__desc">上传样本清单或既往入库总表，系统按具体冰箱位置识别唯一盒子，支持盒号检索、重复入库核查、补录空位和盒号修订。</p>
       </div>
       <div class="hero__stats" aria-label="入库统计">
         <div><span id="totalCount">0</span><small>清单样本</small></div>
@@ -36,7 +36,7 @@
           <span class="step">1</span>
           <div>
             <h2>上传样本清单</h2>
-            <p>支持 .xlsx / .xls / .csv / .txt；自动识别“样本编号 / sample_id / barcode / sample barcode / id”等常见字段，并保留清单中的其他字段。</p>
+            <p>支持 .xlsx / .xls / .csv / .txt；可导入待入库清单，也可导入既往入库总表（含冰箱、层架、列、抽箱、格子、盒号、盒内位置、扫码时间、余量、操作员等字段）。</p>
           </div>
         </div>
         <label class="dropzone" for="fileInput" id="dropzone">
@@ -55,7 +55,7 @@
           <span class="step">2</span>
           <div>
             <h2>按盒扫码入库</h2>
-            <p>扫码枪通常会自动回车；也可手动输入样本编号后按 Enter。请先手动输入盒号；盒内位置按行 A-J/A-I、列 1-10/1-9 自动递增，并会跳过已占用位置。</p>
+            <p>扫码枪通常会自动回车；手动输入新盒号时会校验是否与既有盒号冲突。若为既有盒补录，请先在“盒号核查与修订”中检索并选择具体位置的盒子。</p>
           </div>
         </div>
         <form id="scanForm" class="scan-form">
@@ -126,7 +126,7 @@
 
       <section class="panel panel--lookup">
         <div class="panel__title">
-          <span class="step">4</span>
+          <span class="step">3B</span>
           <div>
             <h2>样本位置查找</h2>
             <p>输入样本编号或条码，快速定位到冰箱、层架、列、抽箱、格子、盒号和盒内位置。</p>
@@ -137,6 +137,21 @@
           <button class="button" type="submit">查找位置</button>
         </form>
         <div id="locationSearchResult" class="lookup-result"><span class="empty-inline">输入样本编号或条码后点击查找，显示冰箱到盒内位置的完整路径。</span></div>
+      </section>
+
+
+      <section class="panel panel--box-review">
+        <div class="panel__title">
+          <span class="step">4</span>
+          <div>
+            <h2>盒号核查与修订</h2>
+            <p>导入既往入库总表后，可按盒号或位置检索；选择具体位置的盒子后，重复扫码提示已入库，未入库样本补充登记到该盒空位，也可直接修订盒号。</p>
+          </div>
+        </div>
+        <div class="lookup-form">
+          <input id="boxSearchInput" class="search" type="search" placeholder="输入盒号/冰箱位置检索，例如 BOX-001 或 冰箱001" autocomplete="off" />
+        </div>
+        <div id="boxSearchResult" class="lookup-result"><span class="empty-inline">导入既往入库数据后，可检索盒号进行核查、补录或修订。</span></div>
       </section>
 
       <section class="panel panel--table">
