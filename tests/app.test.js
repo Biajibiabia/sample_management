@@ -15,6 +15,9 @@ vm.runInContext(appSource, sandbox);
 const {
   SAMPLE_ID_HEADERS,
   formatLocation,
+  formatStorageCode,
+  formatStorageShortLocation,
+  formatDrawerShortLocation,
   formatSampleFullLocation,
   formatBoxSpec,
   incrementBoxPosition,
@@ -72,6 +75,9 @@ assert.equal(recordsWithSeparateBarcode.records[0].barcode, 'BC-100');
 assert.equal(JSON.stringify(parseDelimitedText('样本编号\nA001\nA002')), JSON.stringify([['样本编号'], ['A001'], ['A002']]));
 assert.equal(JSON.stringify(parseDelimitedText('样本编号,姓名\nA001,张三')), JSON.stringify([['样本编号', '姓名'], ['A001', '张三']]));
 assert.equal(formatLocation({ freezer: '001', shelf: '2', column: '3', drawer: '4', cell: '5' }), '冰箱001 / 从上到下第2层 / 从左到右第3列 / 从上到下第4抽箱 / 从外到内第5格');
+assert.equal(formatStorageCode({ freezer: '001', shelf: '3', column: '3', drawer: '2', cell: '4' }), '3C-2抽4格');
+assert.equal(formatStorageShortLocation({ freezer: '001', shelf: '3', column: '3', drawer: '2', cell: '4' }), '冰箱001 · 3层 · C列 · 2号抽箱 · 4号格子');
+assert.equal(formatDrawerShortLocation({ freezer: '001', shelf: '3', column: '3', drawer: '2', cell: '4' }), '冰箱001 · 3层 · C列 · 2号抽箱');
 assert.equal(formatBoxSpec(10), '10×10');
 assert.equal(formatBoxSpec(9), '9×9');
 assert.equal(normaliseBoxPosition(' a2 ', 10), 'A2');
