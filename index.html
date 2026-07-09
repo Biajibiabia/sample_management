@@ -68,10 +68,15 @@
               </select>
             </label>
           </div>
-          <label for="boxPosition">盒内位置
-            <input id="boxPosition" type="text" placeholder="例如 A1、A2、B2" autocomplete="off" />
-            <small class="field-hint">每行从左到右编号，第一行第二列为 A2，第二行第二列为 B2；如当前位置已占用会自动跳到下一个可用位置。</small>
-          </label>
+          <div class="scan-form__two-col">
+            <label for="boxLabelNo">盒子标注编号
+              <input id="boxLabelNo" type="text" placeholder="选择既有盒后自动显示" autocomplete="off" />
+            </label>
+            <label for="boxPosition">盒内位置
+              <input id="boxPosition" type="text" placeholder="例如 A1、A2、B2" autocomplete="off" />
+              <small class="field-hint">每行从左到右编号；如当前位置已占用会自动跳到该盒第一个可用空位。</small>
+            </label>
+          </div>
           <div class="scan-form__two-col">
             <label for="sampleType">样本类型
               <select id="sampleType">
@@ -111,7 +116,7 @@
           <span class="step">3</span>
           <div>
             <h2>记录盒子冰箱位置</h2>
-            <p>每盒扫码完成后，选择其所在冰箱、层架、列、抽箱与格子；有样本时完成盒子会清空盒号并跳到下一格。</p>
+            <p>每盒扫码完成后，选择其所在冰箱、层架、列、抽箱与格子；下方会明确显示已占用位置和下一次可用位置。</p>
           </div>
         </div>
         <form id="locationForm" class="location-grid">
@@ -122,6 +127,7 @@
           <label><span class="location-label__title">格子序号</span><span class="location-label__hint">每抽箱从外到内 1-5</span><select id="cell"></select></label>
           <button class="button button--wide" type="submit">完成当前盒并开始下一盒</button>
         </form>
+        <div id="storageOccupancy" class="storage-occupancy"><span class="empty-inline">上传或选择盒子后显示存储位置占用情况。</span></div>
       </section>
 
       <section class="panel panel--lookup">
@@ -149,7 +155,7 @@
           </div>
         </div>
         <div class="lookup-form">
-          <input id="boxSearchInput" class="search" type="search" placeholder="输入盒号/冰箱位置检索，例如 BOX-001 或 冰箱001" autocomplete="off" />
+          <input id="boxSearchInput" class="search" type="search" placeholder="精准输入盒子标注编号检索，例如 BOX-LABEL-001" autocomplete="off" />
         </div>
         <div id="boxSearchResult" class="lookup-result"><span class="empty-inline">导入既往入库数据后，可检索盒号进行核查、补录或修订。</span></div>
       </section>
