@@ -30,6 +30,9 @@ const {
   createDefaultStorageSpaces,
   getBoxKeyFromParts,
   serialiseSample,
+  parseImportedLocation,
+  normaliseFreezerLocation,
+  formatExcelSerialDate,
 } = sandbox.module.exports;
 
 assert.equal(normaliseId('  SAMPLE-001\n'), 'SAMPLE-001');
@@ -92,6 +95,10 @@ assert.equal(JSON.stringify(getNextFreezerLocation({ freezer: '001', shelf: '4',
 assert.equal(getNextFreezerLocation({ freezer: '002', shelf: '4', column: '5', drawer: '5', cell: '5' }), null);
 assert.equal(JSON.stringify(EXPORT_BASE_HEADERS), JSON.stringify(['样本编号', '条码', '入库状态', '样本类型', '样本来源', '原测序组学', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间', '盒子标注编号', '样本余量(μL)', '操作员']));
 assert.equal(createDefaultStorageSpaces().length, 1000);
+assert.equal(JSON.stringify(normaliseFreezerLocation({ freezer: '1', shelf: '4', column: '5', drawer: '5', cell: '5' })), JSON.stringify({ freezer: '001', shelf: '4', column: '5', drawer: '5', cell: '5' }));
+assert.equal(normaliseFreezerLocation({ freezer: '003', shelf: '1', column: '1', drawer: '1', cell: '1' }), null);
+assert.equal(JSON.stringify(parseImportedLocation({ originalData: { '冰箱编号(001/002)': '002', '层架序号(从上到下1-4)': '3', '列序号(从左到右1-5)': '2', '抽箱序号(每列从上到下1-5)': '4', '格子序号(每抽箱从外到内1-5)': '5' } })), JSON.stringify({ freezer: '002', shelf: '3', column: '2', drawer: '4', cell: '5' }));
+assert.match(formatExcelSerialDate(46183.5854166667), /^2026\/6\/10 14:03/);
 assert.equal(getBoxKeyFromParts('BOX-1', { freezer: '001', shelf: '1', column: '2', drawer: '3', cell: '4' }), '001|1|2|3|4|BOX-1');
 const compactSample = serialiseSample({ id: 'S-compact', barcode: 'BC-compact', status: '未入库', originalData: { 备注: '大量原始字段' } }, true);
 assert.equal(compactSample.id, 'S-compact');
