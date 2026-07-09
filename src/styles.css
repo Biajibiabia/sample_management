@@ -433,3 +433,78 @@ tr.is-stored { background: #f2fbf8; }
 .storage-cell--current {
   outline: 3px solid rgba(15, 76, 129, 0.2);
 }
+
+.storage-guidance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.guidance-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem;
+  border: 1px solid #bcd8ee;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #ffffff, #f1f7fd);
+  box-shadow: var(--shadow-soft);
+}
+
+.guidance-card span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.guidance-card strong {
+  color: var(--primary-dark);
+  font-size: clamp(1.65rem, 3vw, 2.25rem);
+  line-height: 1;
+}
+
+.guidance-card small {
+  color: #244258;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.guidance-card--primary {
+  border-color: #8fe3c0;
+  background: linear-gradient(135deg, #effff8, #ffffff 65%);
+}
+
+.guidance-card--primary strong { color: var(--ok); }
+
+.drawer-options {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem;
+  border: 1px solid #d9e4ef;
+  border-radius: 1rem;
+  background: #ffffff;
+}
+
+.drawer-options > strong { color: var(--primary-dark); }
+
+.drawer-options > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.45rem;
+}
+
+.drawer-option {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: #f8fbff;
+}
+
+.drawer-option b { color: var(--primary-dark); }
+.drawer-option small { color: var(--muted); font-weight: 800; line-height: 1.35; }
+.drawer-option--next { border-color: #8fe3c0; background: #f1fff8; }
+
+@media (max-width: 660px) {
+  .storage-guidance { grid-template-columns: 1fr; }
+}

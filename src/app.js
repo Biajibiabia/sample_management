@@ -183,6 +183,51 @@ function getSelectedBox() {
   return getBoxes().find((box) => box.key === state.selectedBoxKey) || null;
 }
 
+
+function formatStorageCode(location) {
+  if (!location) return '';
+  return `${location.shelf}${String.fromCharCode(64 + Number(location.column))}-${location.drawer}抽${location.cell}格`;
+}
+
+function formatStorageShortLocation(location) {
+  if (!location) return '';
+  return `冰箱${location.freezer} · ${location.shelf}层 · ${String.fromCharCode(64 + Number(location.column))}列 · ${location.drawer}号抽箱 · ${location.cell}号格子`;
+}
+
+function getDrawerKey(location) {
+  if (!location) return '';
+  return [location.freezer, location.shelf, location.column, location.drawer].map(normaliseId).join('|');
+}
+
+function formatDrawerShortLocation(location) {
+  if (!location) return '';
+  return `冰箱${location.freezer} · ${location.shelf}层 · ${String.fromCharCode(64 + Number(location.column))}列 · ${location.drawer}号抽箱`;
+}
+
+function getAvailableDrawerSummaries(startLocation = buildLocation()) {
+  if (!state.storageSpaces.length) state.storageSpaces = createDefaultStorageSpaces();
+  const occupied = getOccupiedStorageKeys();
+  const startKey = getLocationKey(startLocation);
+  const startIndex = Math.max(0, state.storageSpaces.findIndex((space) => getLocationKey(space) === startKey));
+  const orderedSpaces = [...state.storageSpaces.slice(startIndex), ...state.storageSpaces.slice(0, startIndex)];
+  const drawers = new Map();
+  orderedSpaces.forEach((space) => {
+    const key = getDrawerKey(space);
+    if (!drawers.has(key)) drawers.set(key, {
+      firstAvailable: null,
+      availableCells: [],
+      total: 0,
+    });
+    const drawer = drawers.get(key);
+    drawer.total += 1;
+    if (!occupied.has(getLocationKey(space))) {
+      drawer.availableCells.push(space.cell);
+      if (!drawer.firstAvailable) drawer.firstAvailable = space;
+    }
+  });
+  return Array.from(drawers.values()).filter((drawer) => drawer.firstAvailable);
+}
+
 function formatLocation(location) {
   if (!location) return '';
   return `冰箱${location.freezer} / 从上到下第${location.shelf}层 / 从左到右第${location.column}列 / 从上到下第${location.drawer}抽箱 / 从外到内第${location.cell}格`;
@@ -431,6 +476,9 @@ function renderStorageOccupancy() {
   const occupied = getOccupiedStorageKeys();
   const currentLocation = buildLocation();
   const nextAvailable = findNextAvailableStorageLocation(currentLocation);
+  const drawerSummaries = getAvailableDrawerSummaries(currentLocation);
+  const nextDrawer = drawerSummaries[0]?.firstAvailable || null;
+  const alternativeDrawers = drawerSummaries.slice(0, 6);
   const currentKey = getLocationKey(currentLocation);
   const usedCount = occupied.size;
   const nearby = state.storageSpaces
@@ -445,10 +493,31 @@ function renderStorageOccupancy() {
       return `<span class="${classes.join(' ')}" title="${escapeHtml(box ? `${box.boxLabelNo || box.boxName} / ${box.boxName}` : '可用')}">${escapeHtml(space.cell)}${box ? `<small>${escapeHtml(box.boxLabelNo || box.boxName)}</small>` : ''}</span>`;
     }).join('');
   elements.storageOccupancy.innerHTML = `
+    <div class="storage-guidance" aria-label="下一步可用位置提示">
+      <div class="guidance-card guidance-card--primary">
+        <span>下一个可用格子</span>
+        <strong>${nextAvailable ? escapeHtml(formatStorageCode(nextAvailable)) : '已满'}</strong>
+        <small>${nextAvailable ? escapeHtml(formatStorageShortLocation(nextAvailable)) : '暂无可用位置，请先清理或扩容。'}</small>
+      </div>
+      <div class="guidance-card">
+        <span>下一个可用抽箱</span>
+        <strong>${nextDrawer ? escapeHtml(`${formatStorageCode(nextDrawer).split('-')[0]}-${nextDrawer.drawer}抽`) : '已满'}</strong>
+        <small>${nextDrawer ? escapeHtml(formatDrawerShortLocation(nextDrawer)) : '没有剩余空格的抽箱。'}</small>
+      </div>
+    </div>
+    <div class="drawer-options">
+      <strong>有空格的抽箱</strong>
+      <div>${alternativeDrawers.length ? alternativeDrawers.map((drawer, index) => `
+        <span class="drawer-option ${index === 0 ? 'drawer-option--next' : ''}">
+          <b>${escapeHtml(formatStorageCode(drawer.firstAvailable))}</b>
+          <small>${escapeHtml(formatDrawerShortLocation(drawer.firstAvailable))} · 可用格：${escapeHtml(drawer.availableCells.join('、'))}</small>
+        </span>
+      `).join('') : '<span class="empty-inline">暂无可用抽箱</span>'}</div>
+    </div>
     <div class="storage-summary">
       <strong>已占用 ${usedCount}/${state.storageSpaces.length} 个存储格</strong>
       <span>当前选择：${escapeHtml(formatLocation(currentLocation))}</span>
-      <span>下一次可用：${nextAvailable ? escapeHtml(formatLocation(nextAvailable)) : '暂无可用位置'}</span>
+      <span>下方仅展示当前抽箱 5 个格子的占用情况。</span>
     </div>
     <div class="storage-legend"><span class="dot dot--used"></span>已占用 <span class="dot dot--next"></span>下一可用 <span class="dot dot--current"></span>当前选择</div>
     <div class="storage-cells">${nearby}</div>
@@ -1184,5 +1253,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { serialiseSample, normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, normaliseFreezerLocation, parseImportedLocation, getOccupiedStorageKeys, formatExcelSerialDate, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
+  module.exports = { serialiseSample, normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatStorageCode, formatStorageShortLocation, formatDrawerShortLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, normaliseFreezerLocation, parseImportedLocation, getOccupiedStorageKeys, formatExcelSerialDate, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
 }
