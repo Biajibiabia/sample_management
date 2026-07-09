@@ -12,6 +12,8 @@ const SAMPLE_ID_HEADER_ALIASES = new Set([
   'samplebarcode',
   'barcode',
 ]);
+const TABLE_RENDER_LIMIT = 300;
+const STORAGE_SAMPLE_COMPACT_FIELDS = ['id', 'barcode', 'status', 'sampleType', 'sampleSource', 'sequencingOmics', 'returnCompany', 'boxName', 'boxLabelNo', 'remainingVolume', 'operator', 'boxPosition', 'location', 'boxSize', 'storedAt'];
 const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '原测序组学', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间', '盒子标注编号', '样本余量(μL)', '操作员'];
 const BOX_SPECS = {
   '10': { size: 10, label: '10×10', lastRow: 'J' },
@@ -139,9 +141,18 @@ function beep(type = 'error') {
   oscillator.stop(context.currentTime + 0.22);
 }
 
-function serialiseState() {
+function serialiseSample(sample, compact = false) {
+  if (!compact) return sample;
+  return STORAGE_SAMPLE_COMPACT_FIELDS.reduce((record, field) => {
+    record[field] = sample[field];
+    return record;
+  }, {});
+}
+
+function serialiseState(compact = false) {
   return {
-    samples: Array.from(state.samples.values()),
+    compact,
+    samples: Array.from(state.samples.values()).map((sample) => serialiseSample(sample, compact)),
     scanLog: state.scanLog,
     scanHistory: state.scanHistory,
     currentBoxPosition: state.currentBoxPosition,
@@ -153,7 +164,17 @@ function serialiseState() {
 }
 
 function persistState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(serialiseState()));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(serialiseState(false)));
+  } catch (error) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serialiseState(true)));
+      addLog('warning', '浏览器本地存储空间不足，已自动切换为精简保存模式；入库状态和位置会保留，原始扩展字段请以导出的 CSV 为准。');
+      if (elements.fileHint) elements.fileHint.textContent = '已导入；浏览器本地存储空间不足，已使用精简保存模式。';
+    } catch {
+      console.warn('Failed to persist inventory state', error);
+    }
+  }
 }
 
 function restoreState() {
@@ -254,12 +275,14 @@ function updateStats() {
 
 function renderTable() {
   const keyword = normaliseId(elements.searchInput.value).toLowerCase();
-  const samples = Array.from(state.samples.values()).filter((sample) => matchesSampleKeyword(sample, keyword));
+  const allMatches = Array.from(state.samples.values()).filter((sample) => matchesSampleKeyword(sample, keyword));
+  const samples = keyword ? allMatches.slice(0, TABLE_RENDER_LIMIT) : allMatches.filter((sample) => sample.status !== '已入库').slice(0, TABLE_RENDER_LIMIT);
   if (!samples.length) {
-    elements.sampleTable.innerHTML = `<tr><td colspan="11" class="empty">${state.samples.size ? '没有符合搜索条件的样本。' : '请上传样本清单。'}</td></tr>`;
+    elements.sampleTable.innerHTML = `<tr><td colspan="11" class="empty">${state.samples.size ? (keyword ? '没有符合搜索条件的样本。' : '当前没有未入库样本；可搜索样本编号、条码或位置核查已入库样本。') : '请上传样本清单。'}</td></tr>`;
     return;
   }
-  elements.sampleTable.innerHTML = samples.map((sample) => `
+  const summaryRow = allMatches.length > samples.length ? `<tr><td colspan="11" class="empty">为避免一次渲染过多数据，当前仅显示 ${samples.length} 条${keyword ? '搜索结果' : '未入库样本'}；请继续输入关键词缩小范围，或导出 CSV 查看完整清单（共 ${allMatches.length} 条）。</td></tr>` : '';
+  elements.sampleTable.innerHTML = summaryRow + samples.map((sample) => `
     <tr class="${sample.status === '已入库' ? 'is-stored' : ''}">
       <td><strong>${escapeHtml(sample.id)}</strong></td>
       <td>${escapeHtml(sample.barcode || sample.id)}</td>
@@ -444,7 +467,7 @@ async function handleFile(file) {
       originalData: record.originalData,
       status: getHeaderValue(record, ['入库状态']) || (getHeaderValue(record, ['盒号', '盒内位置', '扫码时间']) ? '已入库' : '未入库'),
       sampleType: getHeaderValue(record, ['样本类型']),
-      sampleSource: getHeaderValue(record, ['样本来源']) || '原始采集样本',
+      sampleSource: normaliseSampleSource({ sampleSource: getHeaderValue(record, ['样本来源']), isCompanyReturned: getHeaderValue(record, ['是否公司返回', '公司返回']) }),
       sequencingOmics: getHeaderValue(record, ['原测序组学']),
       returnCompany: getHeaderValue(record, ['返回公司']),
       boxName: getHeaderValue(record, ['盒号']),
@@ -463,10 +486,12 @@ async function handleFile(file) {
     state.originalHeaders = headers;
     elements.boxName.value = '';
     elements.boxPosition.value = state.currentBoxPosition;
-    elements.fileHint.textContent = `已读取 ${records.length} 个候选入库样本：${file.name}（保留原始字段 ${headers.length} 个）`;
-    showScanMessage('success', `清单上传成功：识别到 ${records.length} 个样本，可开始扫码。`);
+    const storedCount = Array.from(state.samples.values()).filter((sample) => sample.status === '已入库').length;
+    const pendingCount = records.length - storedCount;
+    elements.fileHint.textContent = `已读取 ${records.length} 个样本：已入库 ${storedCount} 个，未入库 ${pendingCount} 个（保留原始字段 ${headers.length} 个）`;
+    showScanMessage('success', `清单上传成功：自动识别已入库 ${storedCount} 个、未入库 ${pendingCount} 个。可检索盒号核查，或直接扫码补录未入库样本。`);
     elements.scanInput.focus();
-    addLog('success', `清单导入成功，共 ${records.length} 个样本`);
+    addLog('success', `清单导入成功，共 ${records.length} 个样本，已入库 ${storedCount} 个，未入库 ${pendingCount} 个`);
     render();
   } catch (error) {
     const reason = error?.message || '未知错误';
@@ -872,9 +897,13 @@ function populateSelect(select, total, suffix) {
 function renderBoxSearch() {
   if (!elements.boxSearchResult) return;
   const keyword = normaliseId(elements.boxSearchInput?.value).toLowerCase();
-  const boxes = getBoxes().filter((box) => !keyword || [box.boxName, formatLocation(box.location), box.key].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  if (!keyword && !state.selectedBoxKey) {
+    elements.boxSearchResult.innerHTML = '<span class="empty-inline">请输入盒号或冰箱位置关键词后检索；系统不会一开始列出全部样本盒，避免万级数据卡顿。</span>';
+    return;
+  }
+  const boxes = getBoxes().filter((box) => (box.key === state.selectedBoxKey) || [box.boxName, formatLocation(box.location), box.key].some((value) => String(value || '').toLowerCase().includes(keyword)));
   if (!boxes.length) {
-    elements.boxSearchResult.innerHTML = '<span class="empty-inline">未找到盒号；可在左侧直接输入新盒号入库。</span>';
+    elements.boxSearchResult.innerHTML = '<span class="empty-inline">未找到盒号；可在左侧直接输入新盒号入库，或换一个关键词检索。</span>';
     return;
   }
   elements.boxSearchResult.innerHTML = boxes.slice(0, 30).map((box) => `
@@ -1006,5 +1035,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
+  module.exports = { serialiseSample, normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
 }
