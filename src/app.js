@@ -12,7 +12,7 @@ const SAMPLE_ID_HEADER_ALIASES = new Set([
   'samplebarcode',
   'barcode',
 ]);
-const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间'];
+const EXPORT_BASE_HEADERS = ['样本编号', '条码', '入库状态', '样本类型', '样本来源', '原测序组学', '返回公司', '冰箱', '层架', '列', '抽箱', '格子', '盒号', '样本盒规格', '盒内位置', '完整位置', '扫码时间', '盒子标注编号', '样本余量(μL)', '操作员'];
 const BOX_SPECS = {
   '10': { size: 10, label: '10×10', lastRow: 'J' },
   '9': { size: 9, label: '9×9', lastRow: 'I' },
@@ -26,6 +26,8 @@ const state = {
   currentBoxPosition: 'A1',
   currentBoxSize: DEFAULT_BOX_SIZE,
   originalHeaders: [],
+  storageSpaces: [],
+  selectedBoxKey: '',
 };
 
 const elements = {};
@@ -51,6 +53,69 @@ function buildLocation() {
     drawer: elements.drawer.value,
     cell: elements.cell.value,
   };
+}
+
+
+function createDefaultStorageSpaces() {
+  const spaces = [];
+  ['001', '002'].forEach((freezer) => {
+    for (let shelf = 1; shelf <= 4; shelf += 1) {
+      for (let column = 1; column <= 5; column += 1) {
+        for (let drawer = 1; drawer <= 5; drawer += 1) {
+          for (let cell = 1; cell <= 5; cell += 1) {
+            spaces.push({ freezer, shelf: String(shelf), column: String(column), drawer: String(drawer), cell: String(cell) });
+          }
+        }
+      }
+    }
+  });
+  return spaces;
+}
+
+function getHeaderValue(record, names, fallback = '') {
+  const wanted = names.map(normaliseHeader);
+  const key = Object.keys(record.originalData || {}).find((header) => wanted.includes(normaliseHeader(header)));
+  return key ? normaliseId(record.originalData[key]) : fallback;
+}
+
+function parseImportedLocation(record) {
+  const location = {
+    freezer: getHeaderValue(record, ['冰箱']),
+    shelf: getHeaderValue(record, ['层架']),
+    column: getHeaderValue(record, ['列']),
+    drawer: getHeaderValue(record, ['抽箱']),
+    cell: getHeaderValue(record, ['格子']),
+  };
+  return Object.values(location).some(Boolean) ? location : null;
+}
+
+function getBoxKeyFromParts(boxName, location) {
+  const loc = location || {};
+  return [loc.freezer, loc.shelf, loc.column, loc.drawer, loc.cell, normaliseId(boxName)].map((part) => normaliseId(part)).join('|');
+}
+
+function getSampleBoxKey(sample) {
+  return getBoxKeyFromParts(sample?.boxName, sample?.location);
+}
+
+function getBoxes() {
+  const boxes = new Map();
+  Array.from(state.samples.values()).forEach((sample) => {
+    if (sample.status !== '已入库' || !sample.boxName) return;
+    const key = getSampleBoxKey(sample);
+    if (!boxes.has(key)) boxes.set(key, { key, boxName: sample.boxName, location: sample.location, boxSize: sample.boxSize, count: 0 });
+    boxes.get(key).count += 1;
+  });
+  return Array.from(boxes.values());
+}
+
+function findBoxNameConflicts(boxName, location) {
+  const key = getBoxKeyFromParts(boxName, location);
+  return getBoxes().filter((box) => box.boxName === boxName && box.key !== key);
+}
+
+function getSelectedBox() {
+  return getBoxes().find((box) => box.key === state.selectedBoxKey) || null;
 }
 
 function formatLocation(location) {
@@ -82,6 +147,8 @@ function serialiseState() {
     currentBoxPosition: state.currentBoxPosition,
     currentBoxSize: state.currentBoxSize,
     originalHeaders: state.originalHeaders,
+    storageSpaces: state.storageSpaces,
+    selectedBoxKey: state.selectedBoxKey,
   };
 }
 
@@ -100,6 +167,8 @@ function restoreState() {
     state.currentBoxSize = normaliseBoxSize(parsed.currentBoxSize);
     state.currentBoxPosition = parsed.currentBoxPosition || inferNextBoxPosition() || 'A1';
     state.originalHeaders = parsed.originalHeaders || [];
+    state.storageSpaces = parsed.storageSpaces?.length ? parsed.storageSpaces : createDefaultStorageSpaces();
+    state.selectedBoxKey = parsed.selectedBoxKey || '';
   } catch {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -116,11 +185,17 @@ function migrateSample(sample) {
     returnCompany: sampleSource === '测序返回样本' ? sample.returnCompany || '' : '',
     boxPosition: sample.boxPosition || '',
     boxSize: normaliseBoxSize(sample.boxSize),
+    sequencingOmics: sample.sequencingOmics || sample.originalData?.['原测序组学'] || '',
+    boxLabelNo: sample.boxLabelNo || sample.originalData?.['盒子标注编号'] || '',
+    remainingVolume: sample.remainingVolume || sample.originalData?.['样本余量(μL)'] || sample.originalData?.['样本余量（μL）'] || '',
+    operator: sample.operator || sample.originalData?.['操作员'] || '',
   };
 }
 
 function normaliseBoxSize(value) {
-  const key = String(value || DEFAULT_BOX_SIZE);
+  const raw = String(value || DEFAULT_BOX_SIZE);
+  const match = raw.match(/9|10/);
+  const key = match ? match[0] : raw;
   return BOX_SPECS[key] ? Number(key) : DEFAULT_BOX_SIZE;
 }
 
@@ -154,9 +229,10 @@ function getCurrentBoxName() {
 }
 
 function getCurrentBoxStoredCount() {
+  const selectedBox = getSelectedBox();
   const boxName = getCurrentBoxName();
   if (!boxName) return 0;
-  return Array.from(state.samples.values()).filter((sample) => sample.status === '已入库' && sample.boxName === boxName).length;
+  return Array.from(state.samples.values()).filter((sample) => sample.status === '已入库' && sample.boxName === boxName && (!selectedBox || getSampleBoxKey(sample) === selectedBox.key)).length;
 }
 
 function updateBoxSummary() {
@@ -166,6 +242,7 @@ function updateBoxSummary() {
 }
 
 function updateStats() {
+  if (!state.storageSpaces.length) state.storageSpaces = createDefaultStorageSpaces();
   const samples = Array.from(state.samples.values());
   const stored = samples.filter((sample) => sample.status === '已入库').length;
   elements.totalCount.textContent = samples.length;
@@ -272,6 +349,7 @@ function render() {
   renderLocationSearch();
   renderTable();
   renderLog();
+  renderBoxSearch();
   persistState();
 }
 
@@ -319,7 +397,8 @@ function rowsToSampleRecords(rows) {
     const id = normaliseId(row[columnIndex]);
     if (!id || seen.has(id)) return;
     seen.add(id);
-    records.push({ id, barcode: extractBarcode(headers, row, id), originalData: rowToRecord(headers, row) });
+    const originalData = rowToRecord(headers, row);
+    records.push({ id, barcode: extractBarcode(headers, row, id), originalData });
   });
 
   return { records, headers };
@@ -363,23 +442,27 @@ async function handleFile(file) {
       id: record.id,
       barcode: record.barcode,
       originalData: record.originalData,
-      status: '未入库',
-      sampleType: '',
-      sampleSource: '原始采集样本',
-      returnCompany: '',
-      boxName: '',
-      boxPosition: '',
-      location: null,
-      boxSize: selectedBoxSize,
-      storedAt: '',
+      status: getHeaderValue(record, ['入库状态']) || (getHeaderValue(record, ['盒号', '盒内位置', '扫码时间']) ? '已入库' : '未入库'),
+      sampleType: getHeaderValue(record, ['样本类型']),
+      sampleSource: getHeaderValue(record, ['样本来源']) || '原始采集样本',
+      sequencingOmics: getHeaderValue(record, ['原测序组学']),
+      returnCompany: getHeaderValue(record, ['返回公司']),
+      boxName: getHeaderValue(record, ['盒号']),
+      boxLabelNo: getHeaderValue(record, ['盒子标注编号']),
+      remainingVolume: getHeaderValue(record, ['样本余量(μL)', '样本余量（μL）']),
+      operator: getHeaderValue(record, ['操作员']),
+      boxPosition: normaliseBoxPosition(getHeaderValue(record, ['盒内位置']), normaliseBoxSize(getHeaderValue(record, ['样本盒规格']) || selectedBoxSize)) || getHeaderValue(record, ['盒内位置']),
+      location: parseImportedLocation(record),
+      boxSize: normaliseBoxSize(getHeaderValue(record, ['样本盒规格']) || selectedBoxSize),
+      storedAt: getHeaderValue(record, ['扫码时间']),
     }]));
     state.scanLog = [];
     state.scanHistory = [];
-    state.currentBoxPosition = 'A1';
+    state.currentBoxPosition = inferNextGlobalPosition() || 'A1';
     state.currentBoxSize = selectedBoxSize;
     state.originalHeaders = headers;
     elements.boxName.value = '';
-    elements.boxPosition.value = 'A1';
+    elements.boxPosition.value = state.currentBoxPosition;
     elements.fileHint.textContent = `已读取 ${records.length} 个候选入库样本：${file.name}（保留原始字段 ${headers.length} 个）`;
     showScanMessage('success', `清单上传成功：识别到 ${records.length} 个样本，可开始扫码。`);
     elements.scanInput.focus();
@@ -408,6 +491,17 @@ function inferNextBoxPosition() {
     .map((sample) => sample.boxPosition);
   if (!positions.length) return 'A1';
   return incrementBoxPosition(positions[positions.length - 1], state.currentBoxSize) || '';
+}
+
+function inferNextGlobalPosition() {
+  const selectedBox = getSelectedBox();
+  const boxName = selectedBox?.boxName || getCurrentBoxName();
+  const boxSize = selectedBox?.boxSize || state.currentBoxSize;
+  if (!boxName) return 'A1';
+  const positions = Array.from(state.samples.values())
+    .filter((sample) => sample.status === '已入库' && sample.boxName === boxName && (!selectedBox || getSampleBoxKey(sample) === selectedBox.key) && sample.boxPosition)
+    .map((sample) => sample.boxPosition);
+  return findNextAvailablePosition(positions, 'A1', boxSize) || '';
 }
 
 function normaliseBoxPosition(position, boxSize = DEFAULT_BOX_SIZE) {
@@ -460,6 +554,7 @@ function findNextAvailableBoxPosition(boxName, startPosition = 'A1', boxSize = D
       sample.id !== ignoredSampleId
       && sample.status === '已入库'
       && sample.boxName === boxName
+      && (!getSelectedBox() || getSampleBoxKey(sample) === getSelectedBox().key)
       && sample.boxPosition
     ))
     .map((sample) => sample.boxPosition);
@@ -508,6 +603,18 @@ function handleScan(event) {
         render();
         return;
       }
+      const selectedBox = getSelectedBox();
+      const location = selectedBox?.location || buildLocation();
+      const conflictingBoxes = !selectedBox ? findBoxNameConflicts(boxName, location) : [];
+      if (conflictingBoxes.length) {
+        showScanMessage('error', `盒号冲突：${boxName} 已存在于其他位置。请检索并选择原盒核查，或输入不冲突的新盒号。`);
+        addLog('error', `盒号冲突：${boxName}`, sampleId);
+        beep('error');
+        elements.scanInput.value = '';
+        elements.scanInput.focus();
+        render();
+        return;
+      }
       state.currentBoxSize = boxSize;
       sample.status = '已入库';
       sample.sampleType = elements.sampleType.value;
@@ -516,7 +623,7 @@ function handleScan(event) {
       sample.boxName = boxName;
       sample.boxSize = boxSize;
       sample.boxPosition = availableBoxPosition;
-      sample.location = buildLocation();
+      sample.location = location;
       sample.storedAt = new Date().toLocaleString('zh-CN', { hour12: false });
       state.scanHistory.push(sample.id);
       state.currentBoxPosition = findNextAvailableBoxPosition(boxName, incrementBoxPosition(availableBoxPosition, boxSize), boxSize);
@@ -694,6 +801,7 @@ function exportCsv() {
     sample.status,
     sample.sampleType || '',
     sample.sampleSource || '',
+    sample.sequencingOmics || '',
     sample.returnCompany || '',
     sample.location?.freezer || '',
     sample.location?.shelf || '',
@@ -705,13 +813,16 @@ function exportCsv() {
     sample.boxPosition || '',
     formatSampleFullLocation(sample),
     sample.storedAt || '',
+    sample.boxLabelNo || '',
+    sample.remainingVolume || '',
+    sample.operator || '',
     ...extraHeaders.map((headerName) => sample.originalData?.[headerName] || ''),
   ]);
   downloadCsv('sample-inventory-result.csv', [header, ...rows]);
 }
 
 function downloadTemplate() {
-  downloadCsv('sample-list-template.csv', [['样本编号'], ['S001'], ['S002'], ['S003']]);
+  downloadCsv('sample-list-template.csv', [EXPORT_BASE_HEADERS, ['S001', 'BC001', '未入库', '血浆', '原始采集样本', '', '', '', '', '', '', '', '', '10×10', '', '', '', '', '', '张三']]);
 }
 
 function downloadCsv(filename, rows) {
@@ -734,6 +845,8 @@ function resetTask() {
   state.currentBoxPosition = 'A1';
   state.currentBoxSize = DEFAULT_BOX_SIZE;
   state.originalHeaders = [];
+  state.storageSpaces = createDefaultStorageSpaces();
+  state.selectedBoxKey = '';
   elements.boxName.value = '';
   elements.boxPosition.value = 'A1';
   if (elements.boxSize) elements.boxSize.value = String(DEFAULT_BOX_SIZE);
@@ -755,6 +868,59 @@ function populateSelect(select, total, suffix) {
 }
 
 
+
+function renderBoxSearch() {
+  if (!elements.boxSearchResult) return;
+  const keyword = normaliseId(elements.boxSearchInput?.value).toLowerCase();
+  const boxes = getBoxes().filter((box) => !keyword || [box.boxName, formatLocation(box.location), box.key].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  if (!boxes.length) {
+    elements.boxSearchResult.innerHTML = '<span class="empty-inline">未找到盒号；可在左侧直接输入新盒号入库。</span>';
+    return;
+  }
+  elements.boxSearchResult.innerHTML = boxes.slice(0, 30).map((box) => `
+    <div class="lookup-card ${box.key === state.selectedBoxKey ? 'lookup-card--selected' : ''}">
+      <strong>${escapeHtml(box.boxName)}</strong>
+      <span>${escapeHtml(formatLocation(box.location))}</span>
+      <span>${escapeHtml(formatBoxSpec(box.boxSize))} · ${box.count} 支样本</span>
+      <button class="button button--mini" type="button" data-select-box="${escapeHtml(box.key)}">选择核查/补录</button>
+      <button class="button button--mini button--ghost" type="button" data-rename-box="${escapeHtml(box.key)}">修订盒号</button>
+    </div>
+  `).join('');
+}
+
+function selectBoxForReview(key) {
+  const box = getBoxes().find((item) => item.key === key);
+  if (!box) return;
+  state.selectedBoxKey = key;
+  elements.boxName.value = box.boxName;
+  elements.boxSize.value = String(normaliseBoxSize(box.boxSize));
+  applyLocationToControls(box.location);
+  state.currentBoxSize = normaliseBoxSize(box.boxSize);
+  state.currentBoxPosition = findNextAvailableBoxPosition(box.boxName, 'A1', state.currentBoxSize);
+  elements.boxPosition.value = state.currentBoxPosition || '';
+  showScanMessage('info', `已选择盒号 ${box.boxName} 进行核查/补录；重复样本会提示已入库，未入库样本将补充到该盒空位。`);
+  render();
+}
+
+function renameBox(key) {
+  const box = getBoxes().find((item) => item.key === key);
+  if (!box) return;
+  const nextName = normaliseId(prompt('请输入修订后的盒号：', box.boxName));
+  if (!nextName || nextName === box.boxName) return;
+  const conflicts = findBoxNameConflicts(nextName, box.location);
+  if (conflicts.length) {
+    showScanMessage('error', `盒号冲突：${nextName} 已存在于其他具体位置，不能修订为该盒号。`);
+    return;
+  }
+  state.samples.forEach((sample) => {
+    if (getSampleBoxKey(sample) === key) sample.boxName = nextName;
+  });
+  state.selectedBoxKey = getBoxKeyFromParts(nextName, box.location);
+  elements.boxName.value = nextName;
+  addLog('success', `盒号已由 ${box.boxName} 修订为 ${nextName}`);
+  render();
+}
+
 function syncSampleSourceControls() {
   const isSequencingReturned = elements.sampleSource.value === '测序返回样本';
   elements.returnCompany.disabled = !isSequencingReturned;
@@ -762,7 +928,7 @@ function syncSampleSourceControls() {
 }
 
 function bindElements() {
-  ['systemLoadStatus', 'undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
+  ['systemLoadStatus', 'undoLastScanBtn', 'totalCount', 'storedCount', 'pendingCount', 'mismatchCount', 'currentBoxCount', 'positionPreview', 'fileInput', 'fileHint', 'dropzone', 'scanForm', 'boxName', 'boxSize', 'boxPosition', 'sampleType', 'sampleSource', 'returnCompany', 'scanInput', 'scanMessage', 'locationForm', 'freezer', 'shelf', 'column', 'drawer', 'cell', 'sampleTable', 'searchInput', 'locationSearchForm', 'locationSearchInput', 'locationSearchResult', 'boxSearchInput', 'boxSearchResult', 'exportBtn', 'downloadTemplateBtn', 'resetBtn', 'logList', 'clearLogBtn'].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
 }
@@ -802,7 +968,14 @@ function init() {
     renderLocationSearch();
   });
   elements.locationSearchInput.addEventListener('input', renderLocationSearch);
-  elements.boxName.addEventListener('input', updateBoxSummary);
+  elements.boxSearchInput.addEventListener('input', renderBoxSearch);
+  elements.boxSearchResult.addEventListener('click', (event) => {
+    const selectButton = event.target.closest('[data-select-box]');
+    const renameButton = event.target.closest('[data-rename-box]');
+    if (selectButton) selectBoxForReview(selectButton.dataset.selectBox);
+    if (renameButton) renameBox(renameButton.dataset.renameBox);
+  });
+  elements.boxName.addEventListener('input', () => { state.selectedBoxKey = ''; updateBoxSummary(); renderBoxSearch(); });
   elements.boxSize.addEventListener('change', () => {
     state.currentBoxSize = normaliseBoxSize(elements.boxSize.value);
     const currentPosition = normaliseBoxPosition(elements.boxPosition.value || state.currentBoxPosition, state.currentBoxSize);
@@ -833,5 +1006,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
+  module.exports = { normaliseId, normaliseHeader, rowsToSampleIds, rowsToSampleRecords, parseDelimitedText, formatLocation, formatSampleFullLocation, formatBoxSpec, normaliseBoxPosition, incrementBoxPosition, getNextFreezerLocation, findNextAvailablePosition, createDefaultStorageSpaces, getBoxKeyFromParts, SAMPLE_ID_HEADERS, EXPORT_BASE_HEADERS };
 }
